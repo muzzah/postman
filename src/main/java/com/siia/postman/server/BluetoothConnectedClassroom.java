@@ -1,4 +1,4 @@
-package com.siia.postman;
+package com.siia.postman.server;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
@@ -16,7 +16,7 @@ import java.util.UUID;
 
 import javax.inject.Inject;
 
-public class BluetoothConnectedClassroom implements Classroom {
+public class BluetoothConnectedClassroom {
     private static final String TAG = Logcat.getTag();
     private final PackageManager packageManager;
     private final Context context;
@@ -27,7 +27,6 @@ public class BluetoothConnectedClassroom implements Classroom {
         this.context = context;
     }
 
-    @Override
     public void startClass() {
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
             Logcat.e(TAG, "BLE not available, postman not started");
@@ -63,8 +62,4 @@ public class BluetoothConnectedClassroom implements Classroom {
         });
     }
 
-    @Override
-    public void startClass2() {
-
-    }
 }
