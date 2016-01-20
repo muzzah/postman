@@ -1,7 +1,5 @@
 package com.siia.postman.server;
 
-import android.util.Log;
-
 import com.osiyent.sia.commons.core.io.IO;
 import com.osiyent.sia.commons.core.log.Logcat;
 
@@ -12,6 +10,10 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
 import rx.Observable.OnSubscribe;
 import rx.Subscriber;
@@ -21,9 +23,9 @@ import static com.osiyent.sia.commons.core.log.Logcat.i;
 import static com.osiyent.sia.commons.core.log.Logcat.v;
 import static com.osiyent.sia.commons.core.log.Logcat.w;
 
-class MainNIOEventLoop implements OnSubscribe<ByteBuffer> {
+class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
     private static final String TAG = Logcat.getTag();
-    private static final int BUFFER_SIZE = 4096;
+    private Subscriber<? super NetworkEvent> subscriber;
 
     private enum ChannelType {
         SERVER,
@@ -33,33 +35,39 @@ class MainNIOEventLoop implements OnSubscribe<ByteBuffer> {
     private ServerSocketChannel serverSocketChannel;
     private Selector selector;
     private final InetSocketAddress bindAddress;
+    private final Map<Integer, Client> connectedClients;
 
     public MainNIOEventLoop(InetSocketAddress bindAddress) {
         this.bindAddress = bindAddress;
+        connectedClients = Collections.synchronizedMap(new HashMap<Integer, Client>());
     }
 
     public void shutdownLoop() {
         IO.closeQuietly(selector);
+        IO.closeQuietly(serverSocketChannel.socket());
         IO.closeQuietly(serverSocketChannel);
         //Close client connections
     }
 
 
     @Override
-    public void call(Subscriber<? super ByteBuffer> subscriber) {
+    public void call(Subscriber<? super NetworkEvent> subscriber) {
         i(TAG, "Starting NIO Based event loop");
+        this.subscriber = subscriber;
         try {
             initialiseServerSocket();
             while (true) {
                 d(TAG, "Waiting for channels to become available");
                 int channelsReady = selector.select();
-                if(!selector.isOpen()){
+                if (!selector.isOpen()) {
                     subscriber.onCompleted();
                     break;
                 }
 
                 d(TAG, "%s channels ready", channelsReady);
-                for (SelectionKey key : selector.selectedKeys()) {
+                Iterator<SelectionKey> selectionKeyIterator = selector.selectedKeys().iterator();
+                while (selectionKeyIterator.hasNext()) {
+                    SelectionKey key = selectionKeyIterator.next();
                     ChannelType channelType = (ChannelType) key.attachment();
                     switch (channelType) {
                         case CLIENT:
@@ -71,6 +79,7 @@ class MainNIOEventLoop implements OnSubscribe<ByteBuffer> {
                         default:
                             Logcat.e(TAG, "Unrecognised channel type : %s", channelType);
                     }
+                    selectionKeyIterator.remove();
 
                 }
 
@@ -91,31 +100,29 @@ class MainNIOEventLoop implements OnSubscribe<ByteBuffer> {
             v(TAG, "Reading from client connection");
             SocketChannel clientChannel = (SocketChannel) clientSelectionKey.channel();
 
-            //What is allocatedDirect?
-            ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-
             try {
-                int bytesRead = clientChannel.read(buffer);
-                if (bytesRead == -1) {
-                    w(TAG, "Client channel closed");
-                    IO.closeQuietly(clientChannel);
-                    clientSelectionKey.cancel();
-                } else {
-                    v(TAG, "Read %d bytes", bytesRead);
-                    buffer.flip();
-                    clientChannel.write(buffer);
-                }
+                ByteBuffer bytesRead = connectedClients.get(clientChannel.hashCode()).read();
+                subscriber.onNext(NetworkEvent.newData(bytesRead, clientChannel.hashCode()));
 
             } catch (Exception e) {
                 w(TAG, "Error when reading from client", e);
-                if (!clientChannel.isConnected()) {
-                    //Remove from client pool
-                    clientSelectionKey.cancel();
-                    IO.closeQuietly(clientChannel);
-
-                }
+                checkAndDisconnect(clientSelectionKey, clientChannel);
             }
         }
+    }
+
+    private void checkAndDisconnect(SelectionKey clientSelectionKey, SocketChannel clientChannel) {
+        if (!clientChannel.isConnected() || !clientChannel.isOpen() || clientChannel.socket().isClosed()) {
+            disconnectClient(clientSelectionKey, clientChannel);
+
+        }
+    }
+
+    private void disconnectClient(SelectionKey clientSelectionKey, SocketChannel clientChannel) {
+        connectedClients.remove(clientChannel.hashCode());
+        IO.closeQuietly(clientChannel);
+        clientSelectionKey.cancel();
+        subscriber.onNext(NetworkEvent.clientDisconnected(clientChannel.hashCode()));
     }
 
 
@@ -137,15 +144,12 @@ class MainNIOEventLoop implements OnSubscribe<ByteBuffer> {
         SelectionKey clientKey = null;
         try {
             clientSocketChannel = serverSocketChannel.accept();
-
-            if (clientSocketChannel != null) {
-                clientSocketChannel.configureBlocking(false);
-                d(TAG, "Registering client channel with selector");
-                clientKey = clientSocketChannel.register(selector, SelectionKey.OP_READ);
-                clientKey.attach(ChannelType.CLIENT);
-            } else {
-                Log.w(TAG, "Client channel is null");
-            }
+            subscriber.onNext(NetworkEvent.newClient(clientSocketChannel.hashCode()));
+            clientSocketChannel.configureBlocking(false);
+            d(TAG, "Registering client channel with selector");
+            clientKey = clientSocketChannel.register(selector, SelectionKey.OP_READ);
+            clientKey.attach(ChannelType.CLIENT);
+            connectedClients.put(clientSocketChannel.hashCode(), new Client(clientKey));
         } catch (IOException e) {
             w(TAG, "Couldnt accept client channel", e);
             if (clientKey != null) {
@@ -153,6 +157,7 @@ class MainNIOEventLoop implements OnSubscribe<ByteBuffer> {
             }
             IO.closeQuietly(clientSocketChannel);
         }
+
 
     }
 }

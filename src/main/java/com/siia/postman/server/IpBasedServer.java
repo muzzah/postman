@@ -5,7 +5,6 @@ import android.util.Log;
 import com.osiyent.sia.commons.core.log.Logcat;
 
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 
 import rx.Observable;
 import rx.Subscriber;
@@ -21,21 +20,20 @@ public class IpBasedServer implements Server {
 
     public IpBasedServer() {
         bindAddress = new InetSocketAddress("0.0.0.0", 54345);
-
-
     }
 
+
     @Override
-    public void startServer() {
-        if(serverEventLoop != null) {
+    public void startServer(final NetworkEventListener networkEventListener) {
+        if (serverEventLoop != null) {
             Logcat.w(TAG, "Server already started");
-           return;
+            return;
         }
         mainNioEventLoop = new MainNIOEventLoop(bindAddress);
         serverEventLoop = Observable.create(mainNioEventLoop)
                 .observeOn(newThread())
                 .subscribeOn(newThread()).
-                        subscribe(new Subscriber<ByteBuffer>() {
+                        subscribe(new Subscriber<NetworkEvent>() {
                             @Override
                             public void onCompleted() {
                                 Log.i(TAG, "Server Stopped");
@@ -47,8 +45,20 @@ public class IpBasedServer implements Server {
                             }
 
                             @Override
-                            public void onNext(ByteBuffer byteBuffer) {
-
+                            public void onNext(NetworkEvent networkEvent) {
+                                switch (networkEvent.type()) {
+                                    case CLIENT_JOIN:
+                                        networkEventListener.onClientJoin(networkEvent.clientId());
+                                        break;
+                                    case NEW_DATA:
+                                        networkEventListener.onClientData(networkEvent.data(), networkEvent.clientId());
+                                        break;
+                                    case CLIENT_DISCONNECT:
+                                        networkEventListener.onClientDisconnect(networkEvent.clientId());
+                                        break;
+                                    default:
+                                        Logcat.w(TAG, "Unrecognised Network Event : %s", networkEvent.type());
+                                }
                             }
                         });
 
@@ -58,6 +68,11 @@ public class IpBasedServer implements Server {
     public void stopServer() {
         mainNioEventLoop.shutdownLoop();
         serverEventLoop = null;
+    }
+
+    @Override
+    public void getClient(int clientId) {
+
     }
 
 
