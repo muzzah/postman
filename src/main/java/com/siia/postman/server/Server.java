@@ -6,5 +6,7 @@ public interface Server {
 
     void stopServer();
 
+    boolean isRunning();
+
     void getClient(int clientId);
 }

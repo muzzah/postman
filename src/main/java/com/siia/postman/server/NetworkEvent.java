@@ -6,13 +6,19 @@ public class NetworkEvent {
 
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
+    private static final int NO_CLIENT = -1;
 
     public static NetworkEvent clientDisconnected(int clientId) {
         return new NetworkEvent(NetworkEventType.CLIENT_DISCONNECT, clientId);
     }
 
+    public static NetworkEvent serverListening() {
+        return new NetworkEvent(NetworkEventType.SERVER_LISTENING);
+    }
+
     public enum NetworkEventType {
         CLIENT_JOIN,
+        SERVER_LISTENING,
         CLIENT_DISCONNECT,
         NEW_DATA
     }
@@ -22,14 +28,18 @@ public class NetworkEvent {
     private final int clientId;
     private final ByteBuffer data;
 
-    public NetworkEvent(NetworkEventType type, ByteBuffer data, int clientId) {
+    NetworkEvent(NetworkEventType type, ByteBuffer data, int clientId) {
         this.type = type;
         this.clientId = clientId;
         this.data = data;
     }
 
-    public NetworkEvent(NetworkEventType type, int clientId) {
+    NetworkEvent(NetworkEventType type, int clientId) {
         this(type, EMPTY_BUFFER, clientId);
+    }
+
+    NetworkEvent(NetworkEventType type) {
+        this(type, EMPTY_BUFFER, NO_CLIENT);
     }
 
     public static NetworkEvent newClient(int clientId) {

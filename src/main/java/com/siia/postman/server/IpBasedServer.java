@@ -56,6 +56,9 @@ public class IpBasedServer implements Server {
                                     case CLIENT_DISCONNECT:
                                         networkEventListener.onClientDisconnect(networkEvent.clientId());
                                         break;
+                                    case SERVER_LISTENING:
+                                        networkEventListener.onServerListening();
+                                        break;
                                     default:
                                         Logcat.w(TAG, "Unrecognised Network Event : %s", networkEvent.type());
                                 }
@@ -66,8 +69,18 @@ public class IpBasedServer implements Server {
 
     @Override
     public void stopServer() {
-        mainNioEventLoop.shutdownLoop();
+        if(mainNioEventLoop != null && mainNioEventLoop.isRunning()) {
+            mainNioEventLoop.shutdownLoop();
+        }
+        if(serverEventLoop != null && !serverEventLoop.isUnsubscribed()) {
+            serverEventLoop.unsubscribe();
+        }
         serverEventLoop = null;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return mainNioEventLoop != null && mainNioEventLoop.isRunning() && serverEventLoop != null && !serverEventLoop.isUnsubscribed();
     }
 
     @Override

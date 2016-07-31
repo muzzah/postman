@@ -49,6 +49,10 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
         //Close client connections
     }
 
+    public boolean isRunning() {
+        return serverSocketChannel != null && serverSocketChannel.isOpen() && !serverSocketChannel.socket().isClosed();
+    }
+
 
     @Override
     public void call(Subscriber<? super NetworkEvent> subscriber) {
@@ -56,6 +60,7 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
         this.subscriber = subscriber;
         try {
             initialiseServerSocket();
+            subscriber.onNext(NetworkEvent.serverListening());
             while (true) {
                 d(TAG, "Waiting for channels to become available");
                 int channelsReady = selector.select();
