@@ -1,7 +1,12 @@
 package com.siia.postman.server;
 
+import android.annotation.SuppressLint;
+
 import com.osiyent.sia.commons.core.io.IO;
 import com.osiyent.sia.commons.core.log.Logcat;
+
+import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -15,17 +20,21 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-import rx.Observable.OnSubscribe;
-import rx.Subscriber;
+
+import io.reactivex.FlowableEmitter;
+import io.reactivex.FlowableOnSubscribe;
+import io.reactivex.ObservableEmitter;
+import io.reactivex.ObservableOnSubscribe;
 
 import static com.osiyent.sia.commons.core.log.Logcat.d;
 import static com.osiyent.sia.commons.core.log.Logcat.i;
 import static com.osiyent.sia.commons.core.log.Logcat.v;
 import static com.osiyent.sia.commons.core.log.Logcat.w;
 
-class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
+class MainNIOEventLoop implements Publisher<NetworkEvent> {
     private static final String TAG = Logcat.getTag();
     private Subscriber<? super NetworkEvent> subscriber;
+
 
     private enum ChannelType {
         SERVER,
@@ -37,25 +46,28 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
     private final InetSocketAddress bindAddress;
     private final Map<Integer, Client> connectedClients;
 
-    public MainNIOEventLoop(InetSocketAddress bindAddress) {
+    @SuppressLint("UseSparseArrays")
+    MainNIOEventLoop(InetSocketAddress bindAddress) {
         this.bindAddress = bindAddress;
         connectedClients = Collections.synchronizedMap(new HashMap<Integer, Client>());
     }
 
-    public void shutdownLoop() {
+    void shutdownLoop() {
         IO.closeQuietly(selector);
         IO.closeQuietly(serverSocketChannel.socket());
         IO.closeQuietly(serverSocketChannel);
         //Close client connections
     }
 
-    public boolean isRunning() {
+    boolean isRunning() {
         return serverSocketChannel != null && serverSocketChannel.isOpen() && !serverSocketChannel.socket().isClosed();
     }
 
 
+
     @Override
-    public void call(Subscriber<? super NetworkEvent> subscriber) {
+    public void subscribe(Subscriber<? super NetworkEvent> subscriber) {
+
         i(TAG, "Starting NIO Based event loop");
         this.subscriber = subscriber;
         try {
@@ -65,7 +77,6 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
                 d(TAG, "Waiting for channels to become available");
                 int channelsReady = selector.select();
                 if (!selector.isOpen()) {
-                    subscriber.onCompleted();
                     break;
                 }
 
@@ -87,15 +98,14 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
                     selectionKeyIterator.remove();
 
                 }
-
             }
-
-            subscriber.onCompleted();
+            subscriber.onComplete();
         } catch (Exception e) {
             subscriber.onError(e);
         } finally {
             IO.closeQuietly(selector);
             IO.closeQuietly(serverSocketChannel);
+            this.subscriber = null;
         }
 
     }
@@ -131,7 +141,7 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
     }
 
 
-    public void initialiseServerSocket() throws IOException {
+    private void initialiseServerSocket() throws IOException {
         i(TAG, "Opening Server Channel");
         selector = Selector.open();
         serverSocketChannel = ServerSocketChannel.open();
@@ -146,7 +156,7 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
     private void acceptClientConnection() {
         i(TAG, "Accepting new client channel");
         SocketChannel clientSocketChannel = null;
-        SelectionKey clientKey = null;
+        SelectionKey clientKey;
         try {
             clientSocketChannel = serverSocketChannel.accept();
             subscriber.onNext(NetworkEvent.newClient(clientSocketChannel.hashCode()));
@@ -157,9 +167,6 @@ class MainNIOEventLoop implements OnSubscribe<NetworkEvent> {
             connectedClients.put(clientSocketChannel.hashCode(), new Client(clientKey));
         } catch (IOException e) {
             w(TAG, "Couldnt accept client channel", e);
-            if (clientKey != null) {
-                clientKey.cancel();
-            }
             IO.closeQuietly(clientSocketChannel);
         }
 
