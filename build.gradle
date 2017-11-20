@@ -21,7 +21,6 @@ android {
         compileOptions {
             sourceCompatibility project.sourceCompatibility
             targetCompatibility project.targetCompatibility
-            incremental true
         }
     }
 
@@ -50,11 +49,11 @@ android {
 }
 
 dependencies {
-    compile project(":commons_core")
-    compile "io.reactivex.rxjava2:rxjava:${project.rxjavaVersion}"
-    compile "io.reactivex.rxjava2:rxandroid:${project.rxandroidVersion}"
-    compile "com.android.support:support-annotations:${project.supportVersion}"
-    compile 'org.glassfish:javax.annotation:10.0-b28'
+    implementation 'org.glassfish:javax.annotation:10.0-b28'
+    implementation project(":commons_core")
+    implementation "io.reactivex.rxjava2:rxjava:${project.rxjavaVersion}"
+    implementation "io.reactivex.rxjava2:rxandroid:${project.rxandroidVersion}"
+    implementation "com.android.support:support-annotations:${project.supportVersion}"
     testCompile 'junit:junit:4.12'
     testCompile 'org.mockito:mockito-core:1.9.5'
     testCompile 'com.squareup.assertj:assertj-android:1.0.0'

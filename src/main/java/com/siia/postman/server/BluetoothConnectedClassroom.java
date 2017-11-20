@@ -14,14 +14,11 @@ import com.osiyent.sia.commons.core.log.Logcat;
 
 import java.util.UUID;
 
-import javax.inject.Inject;
-
 public class BluetoothConnectedClassroom {
     private static final String TAG = Logcat.getTag();
     private final PackageManager packageManager;
     private final Context context;
 
-    @Inject
     public BluetoothConnectedClassroom(PackageManager packageManager, Context context) {
         this.packageManager = packageManager;
         this.context = context;
