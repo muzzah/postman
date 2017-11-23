@@ -9,17 +9,17 @@ import java.nio.channels.SocketChannel;
 
 import static com.osiyent.sia.commons.core.log.Logcat.v;
 
-public class Client {
+class Client {
     private static final String TAG = Logcat.getTag();
     private static final int BUFFER_SIZE = 4096;
 
     private final SelectionKey clientKey;
 
-    public Client(SelectionKey clientKey) {
+    Client(SelectionKey clientKey) {
         this.clientKey = clientKey;
     }
 
-    public ByteBuffer read() throws IOException {
+    ByteBuffer read() throws IOException {
         ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
         int bytesRead = getSocketChannel().read(buffer);
         if (bytesRead == -1) {

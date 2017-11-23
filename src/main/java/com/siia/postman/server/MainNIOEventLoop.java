@@ -10,6 +10,7 @@ import org.reactivestreams.Subscriber;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -19,12 +20,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-
-
-import io.reactivex.FlowableEmitter;
-import io.reactivex.FlowableOnSubscribe;
-import io.reactivex.ObservableEmitter;
-import io.reactivex.ObservableOnSubscribe;
 
 import static com.osiyent.sia.commons.core.log.Logcat.d;
 import static com.osiyent.sia.commons.core.log.Logcat.i;
@@ -43,6 +38,7 @@ class MainNIOEventLoop implements Publisher<NetworkEvent> {
 
     private ServerSocketChannel serverSocketChannel;
     private Selector selector;
+    private ServerSocket serverSocket;
     private final InetSocketAddress bindAddress;
     private final Map<Integer, Client> connectedClients;
 
@@ -72,7 +68,8 @@ class MainNIOEventLoop implements Publisher<NetworkEvent> {
         this.subscriber = subscriber;
         try {
             initialiseServerSocket();
-            subscriber.onNext(NetworkEvent.serverListening());
+            subscriber.onNext(NetworkEvent.serverListening(getListeningPort()));
+
             while (true) {
                 d(TAG, "Waiting for channels to become available");
                 int channelsReady = selector.select();
@@ -140,12 +137,17 @@ class MainNIOEventLoop implements Publisher<NetworkEvent> {
         subscriber.onNext(NetworkEvent.clientDisconnected(clientChannel.hashCode()));
     }
 
+    private int getListeningPort() {
+        return serverSocket.getLocalPort();
+    }
+
 
     private void initialiseServerSocket() throws IOException {
-        i(TAG, "Opening Server Channel");
         selector = Selector.open();
         serverSocketChannel = ServerSocketChannel.open();
-        serverSocketChannel.socket().bind(bindAddress);
+        serverSocket = serverSocketChannel.socket();
+        serverSocket.bind(bindAddress);
+        d(TAG, "Server bound to port %d", serverSocket.getLocalPort());
         serverSocketChannel.configureBlocking(false);
         d(TAG, "Registering server channel with selector");
         SelectionKey socketServerSelectionKey = serverSocketChannel.register(selector,

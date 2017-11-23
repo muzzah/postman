@@ -1,6 +1,6 @@
 package com.siia.postman.server;
 
-public interface Server {
+public interface PostmanServer {
 
     void startServer(NetworkEventListener listener);
 
@@ -9,4 +9,7 @@ public interface Server {
     boolean isRunning();
 
     void getClient(int clientId);
+
+    void discoverServerService();
+    void cancelDiscovery();
 }

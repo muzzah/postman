@@ -1,19 +1,34 @@
 package com.siia.postman.server;
 
 import java.nio.ByteBuffer;
+import java.util.HashMap;
+import java.util.Map;
 
-public class NetworkEvent {
+class NetworkEvent {
 
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
-    private static final int NO_CLIENT = -1;
 
-    public static NetworkEvent clientDisconnected(int clientId) {
-        return new NetworkEvent(NetworkEventType.CLIENT_DISCONNECT, clientId);
+    public int getListeningPort() {
+        return (Integer)attributes.get(Attribute.LISTENING_PORT);
     }
 
-    public static NetworkEvent serverListening() {
-        return new NetworkEvent(NetworkEventType.SERVER_LISTENING);
+    private enum Attribute {
+        CLIENT_ID,
+        LISTENING_PORT
+    }
+
+    static NetworkEvent clientDisconnected(int clientId) {
+        return new NetworkEvent(NetworkEventType.CLIENT_DISCONNECT).attribute(Attribute.CLIENT_ID, clientId);
+    }
+
+    private NetworkEvent attribute(Attribute attribute, Object value) {
+        attributes.put(attribute, value);
+        return this;
+    }
+
+    static NetworkEvent serverListening(int listeningPort) {
+        return new NetworkEvent(NetworkEventType.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT,listeningPort);
     }
 
     public enum NetworkEventType {
@@ -25,36 +40,32 @@ public class NetworkEvent {
 
 
     private final NetworkEventType type;
-    private final int clientId;
+    private final Map<Attribute, Object> attributes;
     private final ByteBuffer data;
 
-    NetworkEvent(NetworkEventType type, ByteBuffer data, int clientId) {
+    private NetworkEvent(NetworkEventType type, ByteBuffer data) {
         this.type = type;
-        this.clientId = clientId;
         this.data = data;
+        this.attributes = new HashMap<>();
     }
 
-    NetworkEvent(NetworkEventType type, int clientId) {
-        this(type, EMPTY_BUFFER, clientId);
+    private NetworkEvent(NetworkEventType type) {
+        this(type, EMPTY_BUFFER);
     }
 
-    NetworkEvent(NetworkEventType type) {
-        this(type, EMPTY_BUFFER, NO_CLIENT);
+    static NetworkEvent newClient(int clientId) {
+        return new NetworkEvent(NetworkEventType.CLIENT_JOIN).attribute(Attribute.CLIENT_ID, clientId);
+    }
+    static NetworkEvent newData(ByteBuffer buffer, int clientId) {
+        return new NetworkEvent(NetworkEventType.NEW_DATA, buffer).attribute(Attribute.CLIENT_ID, clientId);
     }
 
-    public static NetworkEvent newClient(int clientId) {
-        return new NetworkEvent(NetworkEventType.CLIENT_JOIN, clientId);
-    }
-    public static NetworkEvent newData(ByteBuffer buffer, int clientId) {
-        return new NetworkEvent(NetworkEventType.NEW_DATA, buffer, clientId);
-    }
-
-    public NetworkEventType type() {
+    NetworkEventType type() {
         return type;
     }
 
-    public int clientId() {
-        return clientId;
+    int clientId() {
+        return (int)attributes.get(Attribute.CLIENT_ID);
     }
 
     public ByteBuffer data() {
