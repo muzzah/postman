@@ -1,20 +1,19 @@
 package com.siia.postman;
 
-import android.content.Context;
-import android.net.nsd.NsdManager;
-
 import com.osiyent.sia.commons.core.android.AndroidDaggerModule;
-import com.siia.postman.server.IPPostmanServer;
+import com.siia.postman.discovery.PostmanDiscoveryDaggerModule;
+import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanServer;
+import com.siia.postman.server.PostmanServerDaggerModule;
 
 import dagger.Module;
 import dagger.Provides;
 
-@Module(includes = AndroidDaggerModule.class)
+@Module(includes = {AndroidDaggerModule.class, PostmanServerDaggerModule.class, PostmanDiscoveryDaggerModule.class})
 public class PostmanDaggerModule {
 
-    @Provides
-    public PostmanServer providesPostmanServer(Context context, NsdManager nsdManager) {
-        return new IPPostmanServer(context, nsdManager);
+
+    @Provides Postman providesPostman(PostmanServer postmanServer, PostmanDiscoveryService postmanDiscoveryService) {
+        return new Postman(postmanServer, postmanDiscoveryService);
     }
 }

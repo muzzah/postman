@@ -1,8 +1,10 @@
 package com.siia.postman.server;
 
+import io.reactivex.Flowable;
+
 public interface PostmanServer {
 
-    void startServer(NetworkEventListener listener);
+    Flowable<NetworkEvent> startServer();
 
     void stopServer();
 
@@ -10,6 +12,4 @@ public interface PostmanServer {
 
     void getClient(int clientId);
 
-    void discoverServerService();
-    void cancelDiscovery();
 }

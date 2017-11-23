@@ -60,7 +60,6 @@ class MainNIOEventLoop implements Publisher<NetworkEvent> {
     }
 
 
-
     @Override
     public void subscribe(Subscriber<? super NetworkEvent> subscriber) {
 
@@ -68,7 +67,7 @@ class MainNIOEventLoop implements Publisher<NetworkEvent> {
         this.subscriber = subscriber;
         try {
             initialiseServerSocket();
-            subscriber.onNext(NetworkEvent.serverListening(getListeningPort()));
+            subscriber.onNext(NetworkEvent.serverListening(serverSocket.getLocalPort(), serverSocket.getInetAddress().getHostAddress()));
 
             while (true) {
                 d(TAG, "Waiting for channels to become available");
@@ -136,11 +135,6 @@ class MainNIOEventLoop implements Publisher<NetworkEvent> {
         clientSelectionKey.cancel();
         subscriber.onNext(NetworkEvent.clientDisconnected(clientChannel.hashCode()));
     }
-
-    private int getListeningPort() {
-        return serverSocket.getLocalPort();
-    }
-
 
     private void initialiseServerSocket() throws IOException {
         selector = Selector.open();

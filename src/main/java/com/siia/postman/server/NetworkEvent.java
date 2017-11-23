@@ -4,31 +4,15 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
-class NetworkEvent {
+public class NetworkEvent {
 
 
     private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
 
-    public int getListeningPort() {
-        return (Integer)attributes.get(Attribute.LISTENING_PORT);
-    }
-
     private enum Attribute {
         CLIENT_ID,
-        LISTENING_PORT
-    }
-
-    static NetworkEvent clientDisconnected(int clientId) {
-        return new NetworkEvent(NetworkEventType.CLIENT_DISCONNECT).attribute(Attribute.CLIENT_ID, clientId);
-    }
-
-    private NetworkEvent attribute(Attribute attribute, Object value) {
-        attributes.put(attribute, value);
-        return this;
-    }
-
-    static NetworkEvent serverListening(int listeningPort) {
-        return new NetworkEvent(NetworkEventType.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT,listeningPort);
+        LISTENING_PORT,
+        IP_ADDRESS
     }
 
     public enum NetworkEventType {
@@ -53,22 +37,50 @@ class NetworkEvent {
         this(type, EMPTY_BUFFER);
     }
 
-    static NetworkEvent newClient(int clientId) {
-        return new NetworkEvent(NetworkEventType.CLIENT_JOIN).attribute(Attribute.CLIENT_ID, clientId);
-    }
-    static NetworkEvent newData(ByteBuffer buffer, int clientId) {
-        return new NetworkEvent(NetworkEventType.NEW_DATA, buffer).attribute(Attribute.CLIENT_ID, clientId);
-    }
 
-    NetworkEventType type() {
+    public NetworkEventType type() {
         return type;
     }
 
-    int clientId() {
-        return (int)attributes.get(Attribute.CLIENT_ID);
+    public int clientId() {
+        return (int) attributes.get(Attribute.CLIENT_ID);
     }
 
     public ByteBuffer data() {
         return data;
+    }
+
+
+    public int getListeningPort() {
+        return (Integer) attributes.get(Attribute.LISTENING_PORT);
+    }
+
+    public String getHostAddress() {
+        return (String)attributes.get(Attribute.IP_ADDRESS);
+    }
+
+
+    private NetworkEvent attribute(Attribute attribute, Object value) {
+        attributes.put(attribute, value);
+        return this;
+    }
+
+    static NetworkEvent clientDisconnected(int clientId) {
+        return new NetworkEvent(NetworkEventType.CLIENT_DISCONNECT).attribute(Attribute.CLIENT_ID, clientId);
+    }
+
+
+    static NetworkEvent serverListening(int port, String hostAddress) {
+        return new NetworkEvent(NetworkEventType.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT, port)
+                .attribute(Attribute.IP_ADDRESS, hostAddress);
+    }
+
+
+    static NetworkEvent newClient(int clientId) {
+        return new NetworkEvent(NetworkEventType.CLIENT_JOIN).attribute(Attribute.CLIENT_ID, clientId);
+    }
+
+    static NetworkEvent newData(ByteBuffer buffer, int clientId) {
+        return new NetworkEvent(NetworkEventType.NEW_DATA, buffer).attribute(Attribute.CLIENT_ID, clientId);
     }
 }
