@@ -1,15 +1,16 @@
 package com.siia.postman.server;
 
-import io.reactivex.Flowable;
+import io.reactivex.subjects.PublishSubject;
+
 
 public interface PostmanServer {
 
-    Flowable<NetworkEvent> startServer();
+    void serverStart();
 
     void stopServer();
 
     boolean isRunning();
 
-    void getClient(int clientId);
+    PublishSubject<ServerEvent> getClassEventsStream();
 
 }
