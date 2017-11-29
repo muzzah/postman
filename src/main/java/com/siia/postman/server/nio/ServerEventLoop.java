@@ -1,4 +1,4 @@
-package com.siia.postman.server.ipv4;
+package com.siia.postman.server.nio;
 
 import android.annotation.SuppressLint;
 import android.util.Log;
@@ -28,19 +28,19 @@ import static com.siia.commons.core.log.Logcat.i;
 import static com.siia.commons.core.log.Logcat.v;
 import static com.siia.commons.core.log.Logcat.w;
 
-class IOEventLoop {
+class ServerEventLoop {
     private static final String TAG = Logcat.getTag();
 
     private ServerSocketChannel serverSocketChannel;
     private Selector clientJoinSelector;
     private final InetSocketAddress bindAddress;
-    private IPIOMessageRouter messageRouter;
+    private MessageQueueLoop messageRouter;
     private PublishSubject<ServerEvent> serverEventStream;
 
     @SuppressLint("UseSparseArrays")
-    IOEventLoop(InetSocketAddress bindAddress) {
+    ServerEventLoop(InetSocketAddress bindAddress) {
         this.bindAddress = bindAddress;
-        this.messageRouter = new IPIOMessageRouter();
+        this.messageRouter = new MessageQueueLoop();
         serverEventStream = PublishSubject.create();
 
     }
@@ -69,21 +69,31 @@ class IOEventLoop {
 
         messageRouter.messageRouterEventStream()
                 .observeOn(Schedulers.computation())
-                .map(
-                        ipMessageRouterEvent -> {
-                            switch (ipMessageRouterEvent.type()) {
+                .subscribe(
+                        event -> {
+                            switch (event.type()) {
                                 case CLIENT_REGISTERED:
-                                    return ServerEvent.newClient(ipMessageRouterEvent.client());
+                                    serverEventStream.onNext(ServerEvent.newClient(event.client()));
+                                    break;
+                                case CLIENT_REGISTRATION_FAILED:
+                                    Log.w(TAG, "Problem when registering client");
+                                    break;
                                 case CLIENT_UNREGISTERED:
-                                    return ServerEvent.clientDiscommected(ipMessageRouterEvent.client());
+                                    serverEventStream.onNext(ServerEvent.clientDiscommected(event.client()));
+                                    break;
                                 default:
                                     throw new UnsupportedOperationException("Unhandled event type from server message router");
                             }
-                        })
-                .subscribe(
-                        event -> serverEventStream.onNext(event),
-                        error -> Log.e(TAG, "Message router ended unexpectedly", error),
-                        () -> Logcat.i(TAG, "Message router loop ended")
+
+                        },
+                        error -> {
+                            Log.e(TAG, "Message router ended unexpectedly");
+                            shutdownLoop();
+                            serverEventStream.onError(error);
+                        },
+                        () -> {
+                            Logcat.i(TAG, "Message router loop ended");
+                        }
                 );
 
         Completable.<PostmanServerClient>create(flowableEmitter -> {
@@ -91,8 +101,15 @@ class IOEventLoop {
 
             try {
                 initialiseServerSocket();
+            } catch (IOException error) {
+                flowableEmitter.onError(error);
+                return;
+            }
+
+            try {
                 messageRouter.startMessageQueueLoop();
                 serverEventStream.onNext(ServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
+
                 while (true) {
                     v(TAG, "Waiting for incoming connections");
                     int channelsReady = clientJoinSelector.select();
@@ -108,42 +125,47 @@ class IOEventLoop {
 
                     v(TAG, "%s channel(s) ready in accept loop", channelsReady);
 
-                    clientJoinSelector.selectedKeys().forEach(selectionKey -> {
-                        v(TAG, "clientJoin SK : v=%s a=%s", selectionKey.isValid(), selectionKey.isAcceptable());
-                        if (!selectionKey.isValid()) {
-                            return;
-                        }
-
-                        if (selectionKey.isAcceptable()) {
-
-                            IPPostmanServerClient client = acceptClientConnection();
-
-                            if (client != null) {
-                                messageRouter.addClient(client);
-                            }
-                        } else {
-                            Log.w(TAG, "Unrecognised interest operation for server socket channel");
-                        }
-                    });
-
-                    clientJoinSelector.selectedKeys().clear();
+                    processKeyUpdates();
 
                 }
-                d(TAG, "Join Event Loop exited");
-                serverEventStream.onComplete();
+                flowableEmitter.onComplete();
             } catch (Exception e) {
-                serverEventStream.onError(e);
-            } finally {
-                shutdownLoop();
+                flowableEmitter.onError(e);
             }
         }).subscribeOn(Schedulers.io())
                 .observeOn(Schedulers.computation())
-                .subscribe(() -> Logcat.d(TAG, "Client Event setup finished"),
+                .subscribe(
+                        () -> {
+                            serverEventStream.onComplete();
+                        },
                         error -> {
                             Logcat.e(TAG, "Error received %s", error);
-                            //TODO Review error handling and propogate error here
+                            shutdownLoop();
+                            serverEventStream.onError(error);
                         });
 
+    }
+
+    private void processKeyUpdates() {
+        clientJoinSelector.selectedKeys().forEach(selectionKey -> {
+            v(TAG, "clientJoin SK : v=%s a=%s", selectionKey.isValid(), selectionKey.isAcceptable());
+            if (!selectionKey.isValid()) {
+                return;
+            }
+
+            if (selectionKey.isAcceptable()) {
+
+                ServerClient client = acceptClientConnection();
+
+                if (client != null) {
+                    messageRouter.addClient(client);
+                }
+            } else {
+                Log.w(TAG, "Unrecognised interest operation for server socket channel");
+            }
+        });
+
+        clientJoinSelector.selectedKeys().clear();
     }
 
 
@@ -158,8 +180,8 @@ class IOEventLoop {
                 SelectionKey.OP_ACCEPT);
     }
 
-    private IPPostmanServerClient acceptClientConnection() {
-        i(TAG, "Accepting new client channel");
+    private ServerClient acceptClientConnection() {
+        d(TAG, "Accepting new client channel");
         SocketChannel clientSocketChannel = null;
         try {
             clientSocketChannel = serverSocketChannel.accept();
@@ -170,7 +192,7 @@ class IOEventLoop {
             IO.closeQuietly(clientSocketChannel);
             return null;
         }
-        return new IPPostmanServerClient(UUID.randomUUID(), clientSocketChannel);
+        return new ServerClient(UUID.randomUUID(), clientSocketChannel);
 
     }
 

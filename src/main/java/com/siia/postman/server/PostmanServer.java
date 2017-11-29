@@ -11,6 +11,6 @@ public interface PostmanServer {
 
     boolean isRunning();
 
-    PublishSubject<ServerEvent> getClassEventsStream();
+    PublishSubject<ServerEvent> getServerEventsStream();
 
 }

@@ -1,25 +1,27 @@
 package com.siia.postman.discovery;
 
 
-import android.net.nsd.NsdServiceInfo;
-
 import java.net.InetAddress;
 
 public class PostmanDiscoveryEvent {
 
     public enum Type {
         FOUND,
-        LOST,
+        NOT_FOUND,
         STARTED
     }
 
-    private final InetAddress address;
-    private final int port;
+    private InetAddress address;
+    private int port;
     private final Type type;
 
-    private PostmanDiscoveryEvent(NsdServiceInfo nsdServiceInfo, Type type) {
-        this.address = nsdServiceInfo.getHost();
-        this.port = nsdServiceInfo.getPort();
+    private PostmanDiscoveryEvent(InetAddress address, int port, Type type) {
+        this.address = address;
+        this.port = port;
+        this.type = type;
+    }
+
+    private PostmanDiscoveryEvent(Type type) {
         this.type = type;
     }
 
@@ -36,22 +38,22 @@ public class PostmanDiscoveryEvent {
     }
 
     public boolean lostService() {
-        return Type.LOST.equals(type);
+        return Type.NOT_FOUND.equals(type);
     }
 
     public Type type() {
         return type;
     }
 
-    static PostmanDiscoveryEvent found(NsdServiceInfo info) {
-        return new PostmanDiscoveryEvent(info, Type.FOUND);
+    static PostmanDiscoveryEvent found(InetAddress address, int port) {
+        return new PostmanDiscoveryEvent(address, port, Type.FOUND);
     }
 
-    static PostmanDiscoveryEvent lost(NsdServiceInfo info) {
-        return new PostmanDiscoveryEvent(info, Type.LOST);
+    static PostmanDiscoveryEvent notFound() {
+        return new PostmanDiscoveryEvent(Type.NOT_FOUND);
     }
 
     static PostmanDiscoveryEvent started() {
-        return new PostmanDiscoveryEvent(new NsdServiceInfo(), Type.STARTED);
+        return new PostmanDiscoveryEvent(Type.STARTED);
     }
 }

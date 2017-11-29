@@ -1,4 +1,4 @@
-package com.siia.postman.server.ipv4;
+package com.siia.postman.server.nio;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
@@ -14,7 +14,7 @@ import java.util.UUID;
 
 import static com.siia.commons.core.log.Logcat.v;
 
-class IPPostmanServerClient implements PostmanServerClient {
+class ServerClient implements PostmanServerClient {
     private static final String TAG = Logcat.getTag();
     private static final int BUFFER_SIZE = 4096;
 
@@ -22,7 +22,7 @@ class IPPostmanServerClient implements PostmanServerClient {
     private final UUID clientId;
     private SelectionKey selectionKey;
 
-    IPPostmanServerClient(UUID clientId, SocketChannel clientSocketChannel) {
+    ServerClient(UUID clientId, SocketChannel clientSocketChannel) {
         this.clientSocketChannel = clientSocketChannel;
         this.clientId = clientId;
     }
@@ -66,6 +66,8 @@ class IPPostmanServerClient implements PostmanServerClient {
     }
 
     boolean isValid() {
+        //Adding selector key validity check here causes potential race condition with adding message to queue
+        // as the key is registered in the message queue loop
         return clientSocketChannel.isConnected();
     }
 
@@ -101,7 +103,7 @@ class IPPostmanServerClient implements PostmanServerClient {
     @Override
     public String toString() {
 
-        String toString = "IPPostmanServerClient{" +
+        String toString = "ServerClient{" +
                 " co=" + clientSocketChannel.isOpen() +
                 " cc=" + clientSocketChannel.isConnected();
         if (selectionKey != null) {

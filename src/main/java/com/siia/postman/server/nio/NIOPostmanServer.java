@@ -1,4 +1,4 @@
-package com.siia.postman.server.ipv4;
+package com.siia.postman.server.nio;
 
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.ServerEvent;
@@ -14,45 +14,47 @@ import io.reactivex.subjects.PublishSubject;
 import static com.siia.commons.core.check.Check.checkState;
 
 
-public class IPPostmanServer implements PostmanServer {
+public class NIOPostmanServer implements PostmanServer {
     private static final String TAG = Logcat.getTag();
 
     private final InetSocketAddress bindAddress;
-    private IOEventLoop IOEventLoop;
-    private PublishSubject<ServerEvent> classEventsStream;
+    private ServerEventLoop serverEventLoop;
+    private PublishSubject<ServerEvent> serverEventsStream;
     private Disposable clientJoinDisposable;
 
-    public IPPostmanServer() {
+    public NIOPostmanServer() {
         this.bindAddress = new InetSocketAddress("0.0.0.0", 8888);
-        this.classEventsStream = PublishSubject.create();
+        this.serverEventsStream = PublishSubject.create();
     }
 
 
     @Override
-    public PublishSubject<ServerEvent> getClassEventsStream() {
-        return classEventsStream;
+    public PublishSubject<ServerEvent> getServerEventsStream() {
+        return serverEventsStream;
     }
 
     @Override
     public void serverStart() {
         checkState(!isRunning(), "Server is already running");
 
-        IOEventLoop = new IOEventLoop(bindAddress);
+        serverEventLoop = new ServerEventLoop(bindAddress);
 
 
 
-        clientJoinDisposable = IOEventLoop.getServerEventsStream()
+        clientJoinDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(Schedulers.computation())
                 .subscribe(
                         event -> {
                             switch (event.type()) {
                                 case CLIENT_JOIN:
-                                    IOEventLoop.addMessageToQueue(new PostmanMessage("HELLO WORLD"), event.client());
+                                    serverEventLoop.addMessageToQueue(new PostmanMessage("HELLO WORLD"), event.client());
+                                    Logcat.i(TAG, "Client connected [%s]", event.client().getClientId());
                                     break;
                                 case CLIENT_DISCONNECT:
+                                    Logcat.i(TAG, "Client disconnected [%s]", event.client().getClientId());
                                     break;
                                 case SERVER_LISTENING:
-                                    classEventsStream.onNext(event);
+                                    serverEventsStream.onNext(event);
                                     break;
                                 default:
                                     Logcat.d(TAG, "Not processing event %s", event.type().name());
@@ -62,15 +64,17 @@ public class IPPostmanServer implements PostmanServer {
 
                         },
                         error -> {
-                            Logcat.e(TAG, "Error on join stream", error);
+                            Logcat.e(TAG, "Error on server events stream", error);
                             clientJoinDisposable.dispose();
+                            serverEventsStream.onError(error);
                         },
                         () -> {
-                            Logcat.i(TAG, "Join Stream has ended");
+                            Logcat.i(TAG, "Server Events stream has ended");
                             clientJoinDisposable.dispose();
+                            serverEventsStream.onComplete();
                         });
 
-        IOEventLoop.startLooping();
+        serverEventLoop.startLooping();
 
 
     }
@@ -78,15 +82,15 @@ public class IPPostmanServer implements PostmanServer {
     @Override
     public void stopServer() {
         checkState(isRunning(), "Server is not running");
-        if (IOEventLoop != null) {
-            IOEventLoop.shutdownLoop();
+        if (serverEventLoop != null) {
+            serverEventLoop.shutdownLoop();
         }
     }
 
     @Override
     public boolean isRunning() {
-        return IOEventLoop != null
-                && IOEventLoop.isRunning();
+        return serverEventLoop != null
+                && serverEventLoop.isRunning();
 
     }
 

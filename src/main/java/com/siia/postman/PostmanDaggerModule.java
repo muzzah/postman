@@ -6,7 +6,7 @@ import com.siia.commons.core.android.AndroidDaggerModule;
 import com.siia.postman.classroom.ClassroomOperations;
 import com.siia.postman.discovery.AndroidNsdDiscoveryService;
 import com.siia.postman.discovery.PostmanDiscoveryService;
-import com.siia.postman.server.ipv4.IPPostmanServer;
+import com.siia.postman.server.nio.NIOPostmanServer;
 import com.siia.postman.server.PostmanServer;
 
 import javax.inject.Singleton;
@@ -26,7 +26,7 @@ public class PostmanDaggerModule {
 
     @Provides
     PostmanServer postmanServer(){
-        return new IPPostmanServer();
+        return new NIOPostmanServer();
     }
 
     @Provides

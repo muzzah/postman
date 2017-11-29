@@ -1,8 +1,9 @@
-package com.siia.postman.server.ipv4;
+package com.siia.postman.server.nio;
 
 
 import android.util.Log;
 
+import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanClientEvent;
@@ -17,18 +18,16 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
-public class IPPostmanClient implements PostmanClient {
+public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
 
-    private final IPIOMessageRouter messageRouter;
+    private final MessageQueueLoop messageRouter;
     private PublishSubject<PostmanClientEvent> clientEventStream;
-    private IPPostmanServerClient client;
-    private SocketChannel socketChannel;
-    private Disposable routerDisposable;
+    private ServerClient client;
 
-    public IPPostmanClient() {
+    public NIOPostmanClient() {
         clientEventStream = PublishSubject.create();
-        messageRouter = new IPIOMessageRouter();
+        messageRouter = new MessageQueueLoop();
     }
 
     @Override
@@ -38,7 +37,7 @@ public class IPPostmanClient implements PostmanClient {
 
     @Override
     public void connect(String host, int port) {
-        routerDisposable = messageRouter.messageRouterEventStream()
+        messageRouter.messageRouterEventStream()
                 .observeOn(Schedulers.computation())
                 .map(
                         event -> {
@@ -62,6 +61,8 @@ public class IPPostmanClient implements PostmanClient {
                                     break;
                                 case DISCONNECTED:
                                     Log.d(TAG, "Postman client disconnected");
+                                    clientEventStream.onNext(clientEvent);
+                                    messageRouter.shutdown();
                                     break;
                                 default:
                                     Logcat.w(TAG, "Unhandled event in client message router loop");
@@ -72,14 +73,12 @@ public class IPPostmanClient implements PostmanClient {
                         error -> {
                             Logcat.e(TAG, "Client Message router loop ended unexpectedly", error);
                             clientEventStream.onError(error);
-                            routerDisposable.dispose();
                         },
                         () ->
 
                         {
-                            Logcat.i(TAG, "Client Message loop for client ended");
+                            Logcat.i(TAG, "Client Message loop completed");
                             clientEventStream.onComplete();
-                            routerDisposable.dispose();
                         });
 
 
@@ -89,19 +88,18 @@ public class IPPostmanClient implements PostmanClient {
 
 
             try {
-                socketChannel = SocketChannel.open();
+                SocketChannel socketChannel = SocketChannel.open();
                 messageRouter.startMessageQueueLoop();
 
                 InetSocketAddress serverAdress = new InetSocketAddress(host, port);
                 socketChannel.connect(serverAdress);
                 socketChannel.configureBlocking(false);
-                client = new IPPostmanServerClient(UUID.randomUUID(), socketChannel);
+                client = new ServerClient(UUID.randomUUID(), socketChannel);
                 messageRouter.addClient(client);
 
                 subscriber.onComplete();
             } catch (IOException exception) {
                 Log.d(TAG, "Problem when connecting to server", exception);
-                client.destroy();
                 messageRouter.shutdown();
                 subscriber.onError(exception);
             }
@@ -111,7 +109,6 @@ public class IPPostmanClient implements PostmanClient {
                 .observeOn(Schedulers.computation())
                 .subscribe(() -> Logcat.d(TAG, "Client Event setup finished"),
                         error ->
-
                         {
                             Logcat.e(TAG, "Error received %s", error);
                             clientEventStream.onError(error);
@@ -120,6 +117,11 @@ public class IPPostmanClient implements PostmanClient {
 
     @Override
     public void disconnect() {
+        messageRouter.shutdown();
+    }
 
+    @Override
+    public boolean isConnected() {
+        return client != null && client.isValid() && messageRouter.isRunning();
     }
 }

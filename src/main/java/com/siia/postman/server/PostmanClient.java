@@ -9,7 +9,7 @@ public interface PostmanClient {
 
     void connect(String host, int port);
 
-
     void disconnect();
 
+    boolean isConnected();
 }

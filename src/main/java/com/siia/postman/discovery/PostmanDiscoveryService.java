@@ -1,12 +1,15 @@
 package com.siia.postman.discovery;
 
 
-import io.reactivex.Flowable;
+import io.reactivex.subjects.PublishSubject;
 
 public interface PostmanDiscoveryService {
 
     void startServiceBroadcast(int post, String hostAddress);
     void stopServiceBroadcast();
-    Flowable<PostmanDiscoveryEvent> discoverService();
+
     boolean isBroadcasting();
+
+    PublishSubject<PostmanDiscoveryEvent> getDiscoveryEventStream();
+    void discoverService();
 }
