@@ -26,12 +26,12 @@ public class NIOPostmanClient implements PostmanClient {
     private ServerClient client;
 
     public NIOPostmanClient() {
-        clientEventStream = PublishSubject.create();
         messageRouter = new MessageQueueLoop();
     }
 
     @Override
     public PublishSubject<PostmanClientEvent> getClientEventStream() {
+        clientEventStream = PublishSubject.create();
         return clientEventStream;
     }
 

@@ -4,14 +4,13 @@ import com.siia.commons.core.log.Logcat;
 import com.siia.postman.discovery.PostmanDiscoveryEvent;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
-import com.siia.postman.server.ServerEvent;
 import com.siia.postman.server.PostmanServer;
-import com.siia.postman.server.nio.NIOPostmanClient;
+import com.siia.postman.server.ServerEvent;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.reactivex.disposables.CompositeDisposable;
-import io.reactivex.schedulers.Schedulers;
+import io.reactivex.Scheduler;
+import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 
 import static com.siia.commons.core.check.Check.checkState;
@@ -21,25 +20,26 @@ public class ClassroomOperations {
     private static final String TAG = Logcat.getTag();
     private final PostmanServer postmanServer;
     private final PostmanDiscoveryService discoveryService;
+    private final Scheduler computationScheduler;
     private final AtomicBoolean isDiscoveryActive;
-    private PostmanClient postmanClient;
-    private final CompositeDisposable disposables;
+    private final PostmanClient postmanClient;
+    private Disposable clientDisposable;
 
 
-    public ClassroomOperations(PostmanServer postmanServer, PostmanDiscoveryService discoveryService) {
+    public ClassroomOperations(PostmanServer postmanServer, PostmanDiscoveryService discoveryService,
+                               PostmanClient postmanClient, Scheduler computationScheduler) {
         this.postmanServer = postmanServer;
         this.discoveryService = discoveryService;
+        this.computationScheduler = computationScheduler;
         this.isDiscoveryActive = new AtomicBoolean(false);
-        this.disposables = new CompositeDisposable();
-
-
+        this.postmanClient = postmanClient;
     }
 
     public void begin() {
         checkState(!hasClassStarted(), "Classroom already running");
         PublishSubject<ServerEvent> serverEventsStream = postmanServer.getServerEventsStream();
         serverEventsStream
-                .observeOn(Schedulers.computation())
+                .observeOn(computationScheduler)
                 .subscribe(
                         event -> {
                             switch (event.type()) {
@@ -64,14 +64,17 @@ public class ClassroomOperations {
 
     public void end() {
         checkState(hasClassStarted(), "Classroom has not started");
-        if (postmanServer != null && postmanServer.isRunning()) {
+        if (postmanServer.isRunning()) {
             postmanServer.stopServer();
             //Service Broadcast should be stopped through event coming through
         }
 
-        if (postmanClient != null && postmanClient.isConnected()) {
-            disposables.dispose();
+        if (postmanClient.isConnected()) {
+            if(clientDisposable != null) {
+                clientDisposable.dispose();
+            }
             postmanClient.disconnect();
+            //If we are discovering?
         }
 
     }
@@ -83,7 +86,7 @@ public class ClassroomOperations {
     }
 
     public boolean hasClassStarted() {
-        return (postmanServer != null && postmanServer.isRunning()) || (postmanClient != null && postmanClient.isConnected());
+        return postmanServer.isRunning() || postmanClient.isConnected();
     }
 
     public boolean hasConnectionAlreadyStarted() {
@@ -94,7 +97,7 @@ public class ClassroomOperations {
         checkState(!isDiscoveryActive.get() && !hasClassStarted(), "Discovery already started");
         if (isDiscoveryActive.compareAndSet(false, true)) {
             discoveryService.getDiscoveryEventStream()
-                    .observeOn(Schedulers.computation())
+                    .observeOn(computationScheduler)
                     .subscribe(
                             discoveryEvent -> {
 
@@ -124,9 +127,8 @@ public class ClassroomOperations {
     }
 
     private void connectToServerAsClient(PostmanDiscoveryEvent discoveryEvent) {
-        postmanClient = new NIOPostmanClient();
-        disposables.add(postmanClient.getClientEventStream()
-                .observeOn(Schedulers.computation())
+        clientDisposable = postmanClient.getClientEventStream()
+                .observeOn(computationScheduler)
                 .subscribe(postmanClientEvent -> {
                             switch (postmanClientEvent.type()) {
                                 case CONNECTED:
@@ -141,7 +143,7 @@ public class ClassroomOperations {
                         },
                         () -> {
                             connect();
-                        }));
+                        });
 
         postmanClient.connect(discoveryEvent.getHotname(), discoveryEvent.getPort());
     }

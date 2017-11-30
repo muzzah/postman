@@ -46,6 +46,10 @@ android {
         checkReleaseBuilds true
         abortOnError false
     }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
 }
 
 dependencies {
