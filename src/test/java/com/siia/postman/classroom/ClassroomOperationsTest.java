@@ -155,10 +155,4 @@ public class ClassroomOperationsTest {
         verify(postmanClient).disconnect();
     }
 
-    @Test
-    public void disposesConnectionObservableWhenDisconnecting() {
-
-    }
-
-
 }

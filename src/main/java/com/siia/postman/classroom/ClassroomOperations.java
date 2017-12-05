@@ -46,6 +46,10 @@ public class ClassroomOperations {
                                 case SERVER_LISTENING:
                                     discoveryService.startServiceBroadcast(event.getListeningPort(), event.getHostAddress());
                                     break;
+                                case CLIENT_JOIN:
+                                    break;
+                                case CLIENT_DISCONNECT:
+                                    break;
                                 default:
                                     Logcat.d(TAG, "Not processing event %s", event.type().name());
                                     break;
@@ -132,17 +136,13 @@ public class ClassroomOperations {
                 .subscribe(postmanClientEvent -> {
                             switch (postmanClientEvent.type()) {
                                 case CONNECTED:
-
                                 case DISCONNECTED:
-
                                 default:
                             }
                         },
                         error -> {
-                            connect();
                         },
                         () -> {
-                            connect();
                         });
 
         postmanClient.connect(discoveryEvent.getHotname(), discoveryEvent.getPort());

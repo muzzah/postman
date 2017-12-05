@@ -13,4 +13,9 @@ public interface PostmanServer {
 
     PublishSubject<ServerEvent> getServerEventsStream();
 
+    void broadcastMessage(PostmanMessage msg);
+
+    void sendMessage(PostmanMessage msg, Connection client);
+
+    String getId();
 }

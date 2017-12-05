@@ -1,11 +1,17 @@
 package com.siia.postman.server.nio;
 
 import com.siia.commons.core.log.Logcat;
-import com.siia.postman.server.ServerEvent;
+import com.siia.postman.server.ServerClientAuthenticator;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
+import com.siia.postman.server.Connection;
+import com.siia.postman.server.ServerEvent;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.UUID;
 
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
@@ -21,10 +27,15 @@ public class NIOPostmanServer implements PostmanServer {
     private ServerEventLoop serverEventLoop;
     private PublishSubject<ServerEvent> serverEventsStream;
     private Disposable clientJoinDisposable;
+    private final List<Connection> clients;
+    private final UUID id;
 
     public NIOPostmanServer() {
         this.bindAddress = new InetSocketAddress("0.0.0.0", 8888);
         this.serverEventsStream = PublishSubject.create();
+        this.clients = Collections.synchronizedList(new ArrayList<>(20));
+        this.id = UUID.randomUUID();
+
     }
 
 
@@ -34,24 +45,46 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
+    public void broadcastMessage(PostmanMessage msg) {
+        clients.parallelStream().forEach(client -> {
+            serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
+        });
+    }
+
+    @Override
+    public void sendMessage(PostmanMessage msg, Connection client) {
+        serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
+    }
+
+    @Override
+    public String getId() {
+        return id.toString();
+    }
+
+    @Override
     public void serverStart() {
         checkState(!isRunning(), "Server is already running");
 
-        serverEventLoop = new ServerEventLoop(bindAddress);
-
+        serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation());
 
 
         clientJoinDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(Schedulers.computation())
+                .doOnSubscribe(clientJoinDisposable -> serverEventLoop.startLooping())
                 .subscribe(
                         event -> {
                             switch (event.type()) {
                                 case CLIENT_JOIN:
-                                    serverEventLoop.addMessageToQueue(new PostmanMessage("HELLO WORLD"), event.client());
                                     Logcat.i(TAG, "Client connected [%s]", event.client().getClientId());
+                                    clients.add(event.client());
+                                    ServerClientAuthenticator handler = new ServerClientAuthenticator(this,
+                                            serverEventLoop.getServerEventsStream(),
+                                            event.client());
+                                    handler.beginAuthentication();
                                     break;
                                 case CLIENT_DISCONNECT:
                                     Logcat.i(TAG, "Client disconnected [%s]", event.client().getClientId());
+                                    clients.remove(event.client());
                                     break;
                                 case SERVER_LISTENING:
                                     serverEventsStream.onNext(event);
@@ -66,15 +99,13 @@ public class NIOPostmanServer implements PostmanServer {
                         error -> {
                             Logcat.e(TAG, "Error on server events stream", error);
                             clientJoinDisposable.dispose();
-                            serverEventsStream.onError(error);
+                            this.serverEventsStream.onError(error);
                         },
                         () -> {
                             Logcat.i(TAG, "Server Events stream has ended");
                             clientJoinDisposable.dispose();
-                            serverEventsStream.onComplete();
+                            this.serverEventsStream.onComplete();
                         });
-
-        serverEventLoop.startLooping();
 
 
     }
@@ -93,8 +124,6 @@ public class NIOPostmanServer implements PostmanServer {
                 && serverEventLoop.isRunning();
 
     }
-
-
 
 
 }

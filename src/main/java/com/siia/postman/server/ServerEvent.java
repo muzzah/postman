@@ -11,14 +11,14 @@ public class ServerEvent {
 
 
 
-
     private enum Attribute {
         CLIENT,
         LISTENING_PORT,
-        IP_ADDRESS
+        IP_ADDRESS,
+        MESSAGE
     }
 
-    public enum NetworkEventType {
+    public enum Type {
         CLIENT_JOIN,
         SERVER_LISTENING,
         CLIENT_DISCONNECT,
@@ -26,31 +26,37 @@ public class ServerEvent {
     }
 
 
-    private final NetworkEventType type;
+    private final Type type;
     private final Map<Attribute, Object> attributes;
-    private final ByteBuffer data;
 
-    private ServerEvent(NetworkEventType type, ByteBuffer data) {
+    private ServerEvent(Type type, ByteBuffer data) {
         this.type = type;
-        this.data = data;
         this.attributes = new HashMap<>();
     }
 
-    private ServerEvent(NetworkEventType type) {
+    private ServerEvent(Type type) {
         this(type, EMPTY_BUFFER);
     }
 
 
-    public NetworkEventType type() {
+    public Type type() {
         return type;
     }
 
-    public PostmanServerClient client() {
-        return (PostmanServerClient) attributes.get(Attribute.CLIENT);
+    public boolean isNewMessageFor() {
+        return Type.NEW_MESSAGE.equals(type);
     }
 
-    public ByteBuffer data() {
-        return data;
+    boolean isNewMessageFor(Connection client) {
+        return Type.NEW_MESSAGE.equals(type) && client().equals(client);
+    }
+
+    public Connection client() {
+        return (Connection) attributes.get(Attribute.CLIENT);
+    }
+
+    public PostmanMessage message() {
+        return (PostmanMessage) attributes.get(Attribute.MESSAGE);
     }
 
 
@@ -63,43 +69,31 @@ public class ServerEvent {
     }
 
 
-    public boolean clientJoined() {
-        return NetworkEventType.CLIENT_JOIN.equals(type);
-    }
-
-    public boolean notClientJoined() {
-        return !NetworkEventType.CLIENT_JOIN.equals(type);
-    }
-
-    public boolean message() {
-        return NetworkEventType.NEW_MESSAGE.equals(this);
-    }
-
     private ServerEvent attribute(Attribute attribute, Object value) {
         attributes.put(attribute, value);
         return this;
     }
 
     static ServerEvent clientDisconnected(int clientId) {
-        return new ServerEvent(NetworkEventType.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, clientId);
+        return new ServerEvent(Type.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, clientId);
     }
 
 
     public static ServerEvent serverListening(int port, String hostAddress) {
-        return new ServerEvent(NetworkEventType.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT, port)
+        return new ServerEvent(Type.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT, port)
                 .attribute(Attribute.IP_ADDRESS, hostAddress);
     }
 
 
-    public static ServerEvent newClient(PostmanServerClient postmanServerClient) {
-        return new ServerEvent(NetworkEventType.CLIENT_JOIN).attribute(Attribute.CLIENT, postmanServerClient);
+    public static ServerEvent newClient(Connection connection) {
+        return new ServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection);
     }
 
-    public static ServerEvent clientDiscommected(PostmanServerClient client) {
-        return new ServerEvent(NetworkEventType.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, client);
+    public static ServerEvent clientDisconnected(Connection client) {
+        return new ServerEvent(Type.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, client);
     }
 
-    static ServerEvent newData(ByteBuffer buffer, int clientId) {
-        return new ServerEvent(NetworkEventType.NEW_MESSAGE, buffer).attribute(Attribute.CLIENT, clientId);
+    public static ServerEvent newMessage(PostmanMessage msg, Connection client) {
+        return new ServerEvent(Type.NEW_MESSAGE).attribute(Attribute.MESSAGE, msg).attribute(Attribute.CLIENT, client);
     }
 }

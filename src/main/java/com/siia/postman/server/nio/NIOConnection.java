@@ -3,7 +3,7 @@ package com.siia.postman.server.nio;
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.PostmanMessage;
-import com.siia.postman.server.PostmanServerClient;
+import com.siia.postman.server.Connection;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -12,31 +12,49 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.UUID;
 
-import static com.siia.commons.core.log.Logcat.v;
-
-class ServerClient implements PostmanServerClient {
+class NIOConnection implements Connection {
     private static final String TAG = Logcat.getTag();
     private static final int BUFFER_SIZE = 4096;
+    private final ByteBuffer buffer;
 
     private final SocketChannel clientSocketChannel;
     private final UUID clientId;
     private SelectionKey selectionKey;
+    private PostmanMessage currentMessage;
 
-    ServerClient(UUID clientId, SocketChannel clientSocketChannel) {
+    NIOConnection(UUID clientId, SocketChannel clientSocketChannel) {
         this.clientSocketChannel = clientSocketChannel;
         this.clientId = clientId;
+        buffer = ByteBuffer.allocate(BUFFER_SIZE);
     }
 
-    ByteBuffer read() throws IOException {
-        ByteBuffer buffer = ByteBuffer.allocate(BUFFER_SIZE);
-        int bytesRead = getSocketChannel().read(buffer);
+    boolean read() throws IOException {
+        if(currentMessage == null || currentMessage.isFilled()) {
+            currentMessage = new PostmanMessage();
+        }
+
+        buffer.clear();
+
+        int bytesRead;
+
+        while((bytesRead = getSocketChannel().read(buffer)) > 0) {
+
+            Logcat.v(TAG, "[%s] read %d bytes", clientId.toString(), bytesRead);
+            buffer.flip();
+            if(currentMessage.read(buffer)) {
+                //TODO We may have read in less than the buffer if a frame over lap occurs here
+                Logcat.v(TAG, "Message read : [%s]", currentMessage.toString());
+                return true;
+            }
+
+            buffer.clear();
+        }
+
         if (bytesRead == -1) {
             throw new IOException("Invalid bytes read from channel");
         }
-        v(TAG, "Read %d bytes", bytesRead);
-        buffer.flip();
-        return buffer;
 
+        return false;
     }
 
     void setWriteInterest() throws ClosedChannelException {
@@ -65,7 +83,8 @@ class ServerClient implements PostmanServerClient {
         return clientSocketChannel;
     }
 
-    boolean isValid() {
+    @Override
+    public boolean isValid() {
         //Adding selector key validity check here causes potential race condition with adding message to queue
         // as the key is registered in the message queue loop
         return clientSocketChannel.isConnected();
@@ -76,17 +95,18 @@ class ServerClient implements PostmanServerClient {
     }
 
     boolean sendMessage(PostmanMessage msg) throws IOException {
-        ByteBuffer out = msg.serialise();
+        ByteBuffer out = msg.getFrame();
+        Logcat.v(TAG, Connection.logMsg("Sending msg : " + msg.toString(), getClientId()));
         int numWritten = 0;
 
         while (selectionKey.isWritable() && out.hasRemaining() && selectionKey.isValid() && clientSocketChannel.isOpen()) {
             numWritten += clientSocketChannel.write(out);
-            Logcat.v(TAG, "%s wrote %d / %d bytes", clientId.toString(), numWritten, out.limit());
+            Logcat.v(TAG, Connection.logMsg("wrote %d / %d bytes", getClientId(), numWritten, out.limit()));
         }
 
         if (numWritten == 0) {
-            Logcat.w(TAG, "0 bytes of message [%s] for client %s [w=%s r=%s sk=%s o=%s]", msg.getMsg(), clientId,
-                    selectionKey.isWritable(), out.hasRemaining(), selectionKey.isValid(), clientSocketChannel.isOpen());
+            Logcat.w(TAG, Connection.logMsg("0 bytes of message written [v=%s o=%s]",
+                    getClientId(), selectionKey.isValid(), clientSocketChannel.isOpen()));
         }
 
         return !out.hasRemaining();
@@ -103,10 +123,10 @@ class ServerClient implements PostmanServerClient {
     @Override
     public String toString() {
 
-        String toString = "ServerClient{" +
+        String toString = "NIOConnection{" +
                 " co=" + clientSocketChannel.isOpen() +
                 " cc=" + clientSocketChannel.isConnected();
-        if (selectionKey != null) {
+        if (selectionKey != null && selectionKey.isValid()) {
             toString += " skv=" + selectionKey.isValid() +
                     " skw=" + selectionKey.isWritable() +
                     " skr=" + selectionKey.isReadable() +
@@ -120,5 +140,7 @@ class ServerClient implements PostmanServerClient {
     }
 
 
-
+    PostmanMessage getNextMessage() {
+        return currentMessage;
+    }
 }

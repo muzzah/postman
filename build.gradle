@@ -1,4 +1,5 @@
 apply plugin: 'com.android.library'
+apply plugin: 'com.google.protobuf'
 
 configurations.all {
     resolutionStrategy {
@@ -52,6 +53,33 @@ android {
     }
 }
 
+protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:3.0.0'
+    }
+    plugins {
+        grpc {
+            artifact = 'io.grpc:protoc-gen-grpc-java:1.0.0-pre2'
+        }
+        javalite {
+            artifact = 'com.google.protobuf:protoc-gen-javalite:3.0.0'
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                // In most cases you don't need the full Java output
+                // if you use the lite output.
+                remove java
+            }
+            task.plugins {
+                javalite { }
+            }
+        }
+    }
+}
+
+
 dependencies {
     implementation project(":commons_core")
 
@@ -64,6 +92,7 @@ dependencies {
     implementation "com.android.support:support-annotations:${project.supportAnnotationVersion}"
     implementation "com.google.dagger:dagger:$project.daggerVersion"
     implementation "org.java-websocket:Java-WebSocket:1.3.6"
+    implementation 'com.google.protobuf:protobuf-lite:3.0.0'
 
 
     testCompile 'junit:junit:4.12'

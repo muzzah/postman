@@ -1,12 +1,10 @@
 package com.siia.postman.server.nio;
 
-import android.annotation.SuppressLint;
 import android.util.Log;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
-import com.siia.postman.server.PostmanMessage;
-import com.siia.postman.server.PostmanServerClient;
+import com.siia.postman.server.Connection;
 import com.siia.postman.server.ServerEvent;
 
 import java.io.IOException;
@@ -20,11 +18,11 @@ import java.util.UUID;
 
 import io.reactivex.Completable;
 import io.reactivex.Observable;
+import io.reactivex.Scheduler;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
 import static com.siia.commons.core.log.Logcat.d;
-import static com.siia.commons.core.log.Logcat.i;
 import static com.siia.commons.core.log.Logcat.v;
 import static com.siia.commons.core.log.Logcat.w;
 
@@ -34,12 +32,13 @@ class ServerEventLoop {
     private ServerSocketChannel serverSocketChannel;
     private Selector clientJoinSelector;
     private final InetSocketAddress bindAddress;
-    private MessageQueueLoop messageRouter;
+    private final Scheduler computation;
+    private final MessageQueueLoop messageRouter;
     private PublishSubject<ServerEvent> serverEventStream;
 
-    @SuppressLint("UseSparseArrays")
-    ServerEventLoop(InetSocketAddress bindAddress) {
+    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation) {
         this.bindAddress = bindAddress;
+        this.computation = computation;
         this.messageRouter = new MessageQueueLoop();
         serverEventStream = PublishSubject.create();
 
@@ -68,7 +67,7 @@ class ServerEventLoop {
     void startLooping() {
 
         messageRouter.messageRouterEventStream()
-                .observeOn(Schedulers.computation())
+                .observeOn(computation)
                 .subscribe(
                         event -> {
                             switch (event.type()) {
@@ -79,7 +78,10 @@ class ServerEventLoop {
                                     Log.w(TAG, "Problem when registering client");
                                     break;
                                 case CLIENT_UNREGISTERED:
-                                    serverEventStream.onNext(ServerEvent.clientDiscommected(event.client()));
+                                    serverEventStream.onNext(ServerEvent.clientDisconnected(event.client()));
+                                    break;
+                                case MESSAGE:
+                                    serverEventStream.onNext(ServerEvent.newMessage(event.msg(), event.client()));
                                     break;
                                 default:
                                     throw new UnsupportedOperationException("Unhandled event type from server message router");
@@ -91,12 +93,10 @@ class ServerEventLoop {
                             shutdownLoop();
                             serverEventStream.onError(error);
                         },
-                        () -> {
-                            Logcat.i(TAG, "Message router loop ended");
-                        }
+                        () -> Logcat.i(TAG, "Message router loop ended")
                 );
 
-        Completable.<PostmanServerClient>create(flowableEmitter -> {
+        Completable.<Connection>create(flowableEmitter -> {
 
 
             try {
@@ -133,11 +133,9 @@ class ServerEventLoop {
                 flowableEmitter.onError(e);
             }
         }).subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.computation())
+                .observeOn(computation)
                 .subscribe(
-                        () -> {
-                            serverEventStream.onComplete();
-                        },
+                        () -> serverEventStream.onComplete(),
                         error -> {
                             Logcat.e(TAG, "Error received %s", error);
                             shutdownLoop();
@@ -155,7 +153,7 @@ class ServerEventLoop {
 
             if (selectionKey.isAcceptable()) {
 
-                ServerClient client = acceptClientConnection();
+                NIOConnection client = acceptClientConnection();
 
                 if (client != null) {
                     messageRouter.addClient(client);
@@ -180,7 +178,8 @@ class ServerEventLoop {
                 SelectionKey.OP_ACCEPT);
     }
 
-    private ServerClient acceptClientConnection() {
+    private NIOConnection acceptClientConnection() {
+
         d(TAG, "Accepting new client channel");
         SocketChannel clientSocketChannel = null;
         try {
@@ -192,11 +191,13 @@ class ServerEventLoop {
             IO.closeQuietly(clientSocketChannel);
             return null;
         }
-        return new ServerClient(UUID.randomUUID(), clientSocketChannel);
+        return new NIOConnection(UUID.randomUUID(), clientSocketChannel);
 
     }
 
-    void addMessageToQueue(PostmanMessage postmanMessage, PostmanServerClient client) {
-        messageRouter.addMessageToQueue(postmanMessage, client);
+    MessageQueueLoop getMessageQueue() {
+        return messageRouter;
     }
+
+
 }

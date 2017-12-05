@@ -1,39 +1,74 @@
 package com.siia.postman.server.nio;
 
+import android.support.annotation.NonNull;
+
+import com.siia.postman.server.PostmanMessage;
+
+import java.util.HashMap;
+import java.util.Map;
+
 class MessageQueueEvent {
+
+
 
     enum Type {
         CLIENT_REGISTERED,
         CLIENT_REGISTRATION_FAILED,
-        CLIENT_UNREGISTERED
+        CLIENT_UNREGISTERED,
+        MESSAGE
     }
 
-    private ServerClient client;
+    private NIOConnection client;
 
     private Type type;
+    private Map<Type, Object> attributes;
 
-    private MessageQueueEvent(ServerClient client, Type type) {
+    private MessageQueueEvent(NIOConnection client, Type type) {
         this.client = client;
         this.type = type;
+        attributes = new HashMap<>();
     }
 
     Type type() {
         return type;
     }
 
-    ServerClient client() {return client; }
+    NIOConnection client() {return client; }
 
-    static MessageQueueEvent clientRegistered(ServerClient client) {
+    MessageQueueEvent addAttribute(Type key, @NonNull PostmanMessage msg) {
+        attributes.put(key, msg);
+        return this;
+    }
+
+    PostmanMessage msg() {
+        return (PostmanMessage) attributes.get(Type.MESSAGE);
+    }
+    boolean isNewMessage() {
+        return Type.MESSAGE.equals(type);
+    }
+
+    static MessageQueueEvent clientRegistered(@NonNull NIOConnection client) {
         return new MessageQueueEvent(client, Type.CLIENT_REGISTERED);
     }
 
-    static MessageQueueEvent clientUnregistered(ServerClient client) {
+    static MessageQueueEvent clientUnregistered(@NonNull NIOConnection client) {
         return new MessageQueueEvent(client, Type.CLIENT_UNREGISTERED);
     }
 
-    static MessageQueueEvent clientRegistrationFailed(ServerClient client) {
+    static MessageQueueEvent clientRegistrationFailed(@NonNull NIOConnection client) {
         return new MessageQueueEvent(client, Type.CLIENT_REGISTRATION_FAILED);
     }
 
+    static MessageQueueEvent messageReceived(@NonNull NIOConnection client, @NonNull PostmanMessage msg) {
+        return new MessageQueueEvent(client, Type.MESSAGE).addAttribute(Type.MESSAGE, msg);
+    }
 
+    @Override
+    public String toString() {
+        return "MessageQueueEvent{" +
+                "client=" + client +
+                ", type=" + type +
+                ", attributes=" + attributes +
+                '}';
+    }
 }

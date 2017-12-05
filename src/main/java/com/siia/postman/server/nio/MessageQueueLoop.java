@@ -6,10 +6,9 @@ import android.util.Log;
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.PostmanMessage;
-import com.siia.postman.server.PostmanServerClient;
+import com.siia.postman.server.Connection;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.NonWritableChannelException;
 import java.nio.channels.SelectionKey;
@@ -35,9 +34,9 @@ class MessageQueueLoop {
     private static final String TAG = Logcat.getTag();
 
     private Selector readWriteSelector;
-    private final ConcurrentMap<SelectionKey, ServerClient> connectedClientsBySelectionKey;
-    private final ConcurrentMap<PostmanServerClient, BlockingQueue<PostmanMessage>> messageQueueForEachClient;
-    private final List<ServerClient> clientsToRegister;
+    private final ConcurrentMap<SelectionKey, NIOConnection> connectedClientsBySelectionKey;
+    private final ConcurrentMap<Connection, BlockingQueue<PostmanMessage>> messageQueueForEachClient;
+    private final List<NIOConnection> clientsToRegister;
     private PublishSubject<MessageQueueEvent> messageRouterEventStream;
 
     @SuppressLint("UseSparseArrays")
@@ -51,7 +50,7 @@ class MessageQueueLoop {
 
     void shutdown() {
 
-        connectedClientsBySelectionKey.values().forEach(ServerClient::destroy);
+        connectedClientsBySelectionKey.values().forEach(NIOConnection::destroy);
         connectedClientsBySelectionKey.clear();
 
         clientsToRegister.clear();
@@ -72,16 +71,16 @@ class MessageQueueLoop {
         return readWriteSelector != null && readWriteSelector.isOpen();
     }
 
-    void addMessageToQueue(PostmanMessage msg, PostmanServerClient destination) {
+    void addMessageToQueue(PostmanMessage msg, Connection destination) {
 
-        ServerClient serverClient = (ServerClient) destination;
+        NIOConnection NIOConnection = (NIOConnection) destination;
 
-        if (!serverClient.isValid()) {
+        if (!NIOConnection.isValid()) {
             Logcat.w(TAG, "Not adding message [%s] to queue with invalid client [%s]", msg.toString(), destination.toString());
             return;
         }
 
-        BlockingQueue<PostmanMessage> queueForClient = messageQueueForEachClient.get(serverClient);
+        BlockingQueue<PostmanMessage> queueForClient = messageQueueForEachClient.get(NIOConnection);
 
         if (!queueForClient.offer(msg)) {
             Logcat.e(TAG, "Could not add message [%s] to queue, dropping", msg.toString());
@@ -89,17 +88,17 @@ class MessageQueueLoop {
         }
 
         try {
-            serverClient.setWriteInterest();
+            NIOConnection.setWriteInterest();
         } catch (ClosedChannelException e) {
             Logcat.e(TAG, "Could not set write interest for client selector", e);
-            cleanupClient(serverClient);
+            cleanupClient(NIOConnection);
         }
         readWriteSelector.wakeup();
 
 
     }
 
-    private void cleanupClient(ServerClient client) {
+    private void cleanupClient(NIOConnection client) {
         Logcat.v(TAG, "Destroying client %s", client.getClientId());
         client.destroy();
         SelectionKey clientKey = client.selectionKey();
@@ -185,20 +184,21 @@ class MessageQueueLoop {
             v(TAG, "SK : v=%s w=%s c=%s r=%s", selectionKey.isValid(),
                     selectionKey.isWritable(), selectionKey.isConnectable(), selectionKey.isReadable());
 
-            ServerClient client = connectedClientsBySelectionKey.get(selectionKey);
+            NIOConnection client = connectedClientsBySelectionKey.get(selectionKey);
 
             if (!selectionKey.isValid()) {
                 cleanupClient(client);
                 return;
             }
 
-            BlockingQueue<PostmanMessage> messagesForClient = messageQueueForEachClient.get(client);
-
-
             if(selectionKey.isReadable()) {
 
                 try {
-                    ByteBuffer in = client.read();
+                    if(client.read()) {
+
+                        PostmanMessage msg = client.getNextMessage();
+                        messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(client, msg));
+                    }
                 } catch (IOException e) {
                     Logcat.w(TAG, "Lost client : %s", e.getMessage());
                     cleanupClient(client);
@@ -207,18 +207,20 @@ class MessageQueueLoop {
             }
 
             if (selectionKey.isWritable()) {
+                BlockingQueue<PostmanMessage> messagesForClient = messageQueueForEachClient.get(client);
 
                 if (messagesForClient.isEmpty()) {
                     client.unsetWriteInterest();
                     return;
                 }
 
-                PostmanMessage msg = messagesForClient.poll();
+                PostmanMessage msg = messagesForClient.peek();
                 if (msg != null) {
 
                     try {
                         if(client.sendMessage(msg)) {
                             client.unsetWriteInterest();
+                            messagesForClient.remove(msg);
                         }
                     } catch (NonWritableChannelException e) {
                         Log.e(TAG, "Channel not writable", e);
@@ -262,7 +264,7 @@ class MessageQueueLoop {
 
     }
 
-    void addClient(ServerClient client) {
+    void addClient(NIOConnection client) {
         clientsToRegister.add(client);
         readWriteSelector.wakeup();
     }

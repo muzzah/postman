@@ -42,7 +42,7 @@ class PostmanDaggerModule {
     }
 
     @Provides
-    PostmanClient providesPostmanClient(){
-        return new NIOPostmanClient();
+    PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler){
+        return new NIOPostmanClient(scheduler);
     }
 }
