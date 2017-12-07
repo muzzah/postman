@@ -24,6 +24,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
     private final NsdManager.RegistrationListener serviceRegistrationListener;
     private final AtomicBoolean broadcastActive;
     private PublishSubject<PostmanDiscoveryEvent> discoverEventsStream;
+    private ServiceDiscoveryListener listener;
 
 
     public AndroidNsdDiscoveryService(NsdManager ndsManager) {
@@ -85,11 +86,12 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
     public void discoverService() {
         Completable.fromPublisher(
                 emitter -> {
-                    ServiceDiscoveryListener listener = new ServiceDiscoveryListener(nsdManager, discoverEventsStream);
+                    listener = new ServiceDiscoveryListener(nsdManager, discoverEventsStream);
                     nsdManager.discoverServices(
                             SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener);
 
                     emitter.onComplete();
+
 
                 })
                 .subscribeOn(Schedulers.io())
@@ -102,6 +104,15 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
                         }
                 );
 
+    }
+
+    @Override
+    public void stopDiscovery() {
+        try {
+            nsdManager.stopServiceDiscovery(listener);
+        } catch (Exception error){
+            Log.w(TAG, "Error when stopping discovery", error);
+        }
     }
 
 
@@ -152,7 +163,6 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         public void onServiceLost(NsdServiceInfo serviceInfo) {
             Logcat.w(TAG, "Service Lost");
             eventStream.onNext(PostmanDiscoveryEvent.notFound());
-            nsdManager.stopServiceDiscovery(this);
         }
 
 
@@ -166,7 +176,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         private final NsdManager nsdManager;
         private final ServiceDiscoveryListener serviceDiscoveryListener;
 
-        public ServiceResolutionHandler(PublishSubject<PostmanDiscoveryEvent> eventStream, NsdManager nsdManager, ServiceDiscoveryListener serviceDiscoveryListener) {
+        ServiceResolutionHandler(PublishSubject<PostmanDiscoveryEvent> eventStream, NsdManager nsdManager, ServiceDiscoveryListener serviceDiscoveryListener) {
             this.eventStream = eventStream;
             this.nsdManager = nsdManager;
             this.serviceDiscoveryListener = serviceDiscoveryListener;
@@ -176,7 +186,6 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {
             Logcat.e(TAG, "Siia Service Resolution Failed (%d)", errorCode);
             eventStream.onNext(PostmanDiscoveryEvent.notFound());
-            nsdManager.stopServiceDiscovery(serviceDiscoveryListener);
         }
 
         @Override
@@ -188,8 +197,6 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
             Logcat.d(TAG, "Service Host Name : " + serviceInfo.getHost().getHostName());
             Logcat.d(TAG, "Service Attributes : " + serviceInfo.getAttributes());
             eventStream.onNext(PostmanDiscoveryEvent.found(serviceInfo.getHost(), serviceInfo.getPort()));
-            nsdManager.stopServiceDiscovery(serviceDiscoveryListener);
-
 
         }
 

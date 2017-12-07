@@ -13,6 +13,7 @@ import com.siia.postman.server.nio.NIOPostmanClient;
 import com.siia.postman.server.nio.NIOPostmanServer;
 
 import javax.inject.Named;
+import javax.inject.Provider;
 import javax.inject.Singleton;
 
 import dagger.Module;
@@ -25,9 +26,8 @@ class PostmanDaggerModule {
     @Provides
     @Singleton
     ClassroomOperations providesClassroom(PostmanServer server, PostmanDiscoveryService discoveryService,
-                                          PostmanClient postmanClient,
-                                          @Named("computation") Scheduler computation) {
-        return new ClassroomOperations(server, discoveryService, postmanClient, computation);
+                                          @Named("computation") Scheduler computation, Provider<PostmanClient> clientProvider) {
+        return new ClassroomOperations(server, discoveryService, clientProvider, computation);
     }
 
 

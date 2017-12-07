@@ -76,7 +76,7 @@ class MessageQueueLoop {
         NIOConnection NIOConnection = (NIOConnection) destination;
 
         if (!NIOConnection.isValid()) {
-            Logcat.w(TAG, "Not adding message [%s] to queue with invalid client [%s]", msg.toString(), destination.toString());
+            Logcat.w(TAG, "Not adding message [%s] to queue with invalid connection [%s]", msg.toString(), destination.toString());
             return;
         }
 
@@ -90,7 +90,7 @@ class MessageQueueLoop {
         try {
             NIOConnection.setWriteInterest();
         } catch (ClosedChannelException e) {
-            Logcat.e(TAG, "Could not set write interest for client selector", e);
+            Logcat.e(TAG, "Could not set write interest for connection selector", e);
             cleanupClient(NIOConnection);
         }
         readWriteSelector.wakeup();
@@ -99,7 +99,7 @@ class MessageQueueLoop {
     }
 
     private void cleanupClient(NIOConnection client) {
-        Logcat.v(TAG, "Destroying client %s", client.getClientId());
+        Logcat.v(TAG, "Destroying connection %s", client.getConnectionId());
         client.destroy();
         SelectionKey clientKey = client.selectionKey();
         if(client.selectionKey() != null ) {
@@ -199,8 +199,8 @@ class MessageQueueLoop {
                         PostmanMessage msg = client.getNextMessage();
                         messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(client, msg));
                     }
-                } catch (IOException e) {
-                    Logcat.w(TAG, "Lost client : %s", e.getMessage());
+                } catch (Exception e) {
+                    Logcat.w(TAG, "Lost connection : %s", e.getMessage());
                     cleanupClient(client);
                     return;
                 }
@@ -245,10 +245,10 @@ class MessageQueueLoop {
         clientsToRegister.forEach(client -> {
             SelectionKey clientKey;
             try {
-                //Start with a write interest to send any queued up msgs, loop below will unset client if needed
+                //Start with a write interest to send any queued up msgs, loop below will unset connection if needed
                 clientKey = client.channel().register(readWriteSelector, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
             } catch (ClosedChannelException e) {
-                Log.e(TAG, "Connected client disconnected before write ops registration", e);
+                Log.e(TAG, "Connected connection disconnected before write ops registration", e);
                 client.destroy();
                 messageRouterEventStream.onNext(MessageQueueEvent.clientRegistrationFailed(client));
                 return;

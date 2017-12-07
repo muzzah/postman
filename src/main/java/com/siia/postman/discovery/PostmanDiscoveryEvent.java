@@ -7,7 +7,7 @@ public class PostmanDiscoveryEvent {
 
     public enum Type {
         FOUND,
-        NOT_FOUND,
+        LOST,
         STARTED
     }
 
@@ -38,7 +38,7 @@ public class PostmanDiscoveryEvent {
     }
 
     public boolean lostService() {
-        return Type.NOT_FOUND.equals(type);
+        return Type.LOST.equals(type);
     }
 
     public Type type() {
@@ -50,7 +50,7 @@ public class PostmanDiscoveryEvent {
     }
 
     static PostmanDiscoveryEvent notFound() {
-        return new PostmanDiscoveryEvent(Type.NOT_FOUND);
+        return new PostmanDiscoveryEvent(Type.LOST);
     }
 
     static PostmanDiscoveryEvent started() {

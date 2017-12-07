@@ -1,17 +1,17 @@
 package com.siia.postman.server.nio;
 
+import android.util.Log;
+
 import com.siia.commons.core.log.Logcat;
-import com.siia.postman.server.ServerClientAuthenticator;
+import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
-import com.siia.postman.server.Connection;
+import com.siia.postman.server.ServerClientAuthenticator;
 import com.siia.postman.server.ServerEvent;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
@@ -26,14 +26,15 @@ public class NIOPostmanServer implements PostmanServer {
     private final InetSocketAddress bindAddress;
     private ServerEventLoop serverEventLoop;
     private PublishSubject<ServerEvent> serverEventsStream;
-    private Disposable clientJoinDisposable;
-    private final List<Connection> clients;
+    private Disposable eventDisposable;
+    private final ConcurrentSkipListSet<Connection> clients;
     private final UUID id;
+    private Disposable newMessageDisposable;
 
     public NIOPostmanServer() {
         this.bindAddress = new InetSocketAddress("0.0.0.0", 8888);
         this.serverEventsStream = PublishSubject.create();
-        this.clients = Collections.synchronizedList(new ArrayList<>(20));
+        this.clients = new ConcurrentSkipListSet<>();
         this.id = UUID.randomUUID();
 
     }
@@ -68,23 +69,36 @@ public class NIOPostmanServer implements PostmanServer {
         serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation());
 
 
-        clientJoinDisposable = serverEventLoop.getServerEventsStream()
+        eventDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(Schedulers.computation())
-                .doOnSubscribe(clientJoinDisposable -> serverEventLoop.startLooping())
+                .filter(serverEvent -> !serverEvent.isNewMessage())
                 .subscribe(
                         event -> {
                             switch (event.type()) {
                                 case CLIENT_JOIN:
-                                    Logcat.i(TAG, "Client connected [%s]", event.client().getClientId());
-                                    clients.add(event.client());
+                                    Logcat.i(TAG, "Client connected [%s]", event.connection().getConnectionId());
                                     ServerClientAuthenticator handler = new ServerClientAuthenticator(this,
                                             serverEventLoop.getServerEventsStream(),
-                                            event.client());
-                                    handler.beginAuthentication();
+                                            event.connection());
+
+                                    handler.beginAuthentication().observeOn(Schedulers.computation())
+                                            .subscribe(
+                                                    state -> {
+                                                        switch (state) {
+                                                            case AUTHENTICATED:
+                                                                clients.add(event.connection());
+                                                                serverEventsStream.onNext(ServerEvent.newClient(event.connection()));
+                                                                break;
+                                                            case AUTH_FAILED:
+                                                                Log.w(TAG, "Auth failed");
+                                                                break;
+                                                        }
+                                                    });
+
                                     break;
                                 case CLIENT_DISCONNECT:
-                                    Logcat.i(TAG, "Client disconnected [%s]", event.client().getClientId());
-                                    clients.remove(event.client());
+                                    Logcat.i(TAG, "Client disconnected [%s]", event.connection().getConnectionId());
+                                    clients.remove(event.connection());
                                     break;
                                 case SERVER_LISTENING:
                                     serverEventsStream.onNext(event);
@@ -98,15 +112,26 @@ public class NIOPostmanServer implements PostmanServer {
                         },
                         error -> {
                             Logcat.e(TAG, "Error on server events stream", error);
-                            clientJoinDisposable.dispose();
-                            this.serverEventsStream.onError(error);
+                            serverEventsStream.onError(error);
                         },
                         () -> {
                             Logcat.i(TAG, "Server Events stream has ended");
-                            clientJoinDisposable.dispose();
-                            this.serverEventsStream.onComplete();
+                            serverEventsStream.onComplete();
                         });
 
+
+        newMessageDisposable = serverEventLoop.getServerEventsStream()
+                .observeOn(Schedulers.computation())
+                .filter(ServerEvent::isNewMessage)
+                .subscribe(
+                        event -> {
+                            if (clients.contains(event.connection())) {
+                                serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
+                            }
+                        }
+                );
+
+        serverEventLoop.startLooping();
 
     }
 

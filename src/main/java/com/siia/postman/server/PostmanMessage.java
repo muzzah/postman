@@ -11,6 +11,7 @@ import static com.siia.commons.core.check.Check.checkState;
 public class PostmanMessage {
     private static final long MAX_MESSAGE_LENGTH = 1024*1024; //1MB
     private static final int HEADER_LENGTH = Integer.BYTES;
+    private static final int MIN_FRAME_LENGTH = HEADER_LENGTH+1;
     private int bodyLength;
     private ByteBuffer frame;
     private ByteBuffer body;
@@ -78,6 +79,10 @@ public class PostmanMessage {
         }
 
         if(bodyLength == 0) {
+
+            if(buffer.remaining() < MIN_FRAME_LENGTH) {
+                throw new IOException("Not enough bytes for frame");
+            }
 
             bodyLength = buffer.getInt(0);
 

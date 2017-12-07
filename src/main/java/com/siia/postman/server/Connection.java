@@ -3,9 +3,9 @@ package com.siia.postman.server;
 
 import java.util.UUID;
 
-public interface Connection {
+public interface Connection extends Comparable<Connection> {
 
-    UUID getClientId();
+    UUID getConnectionId();
 
 
     boolean isValid();

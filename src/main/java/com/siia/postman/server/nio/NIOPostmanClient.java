@@ -23,7 +23,7 @@ import io.reactivex.subjects.PublishSubject;
 public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
 
-    private final MessageQueueLoop messageRouter;
+    private MessageQueueLoop messageRouter;
     private PublishSubject<PostmanClientEvent> clientEventStream;
     private NIOConnection client;
     private final Scheduler computation;
@@ -32,17 +32,18 @@ public class NIOPostmanClient implements PostmanClient {
 
     public NIOPostmanClient(Scheduler computation) {
         this.computation = computation;
-        messageRouter = new MessageQueueLoop();
-        clientEventStream = PublishSubject.create();
+
     }
 
     @Override
     public PublishSubject<PostmanClientEvent> getClientEventStream() {
+        clientEventStream = PublishSubject.create();
         return clientEventStream;
     }
 
     @Override
     public void connect(String host, int port) {
+        messageRouter = new MessageQueueLoop();
         Observable<PostmanClientEvent> mappedItems = messageRouter.messageRouterEventStream()
                 .observeOn(computation)
                 .map(
@@ -54,11 +55,12 @@ public class NIOPostmanClient implements PostmanClient {
                                     messageRouter.shutdown();
                                     return PostmanClientEvent.clientDisconnected();
                                 case MESSAGE:
-                                    Logcat.v(TAG, "Message received : [%s]", event.msg().toString());
                                     return PostmanClientEvent.newMessage(event.client(), event.msg());
                                 case CLIENT_REGISTRATION_FAILED:
+                                    messageRouter.shutdown();
+                                    return PostmanClientEvent.clientDisconnected();
                                 default:
-                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman client [%s]", event.toString());
+                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman connection [%s]", event.toString());
                                     return PostmanClientEvent.ignoreEvent();
 
                             }
@@ -68,20 +70,23 @@ public class NIOPostmanClient implements PostmanClient {
                         clientEvent -> {
                             switch (clientEvent.type()) {
                                 case CONNECTED:
-                                    Log.d(TAG, "Postman client connected");
+                                    Log.d(TAG, "Postman connection connected");
                                     break;
                                 case DISCONNECTED:
-                                    Log.d(TAG, "Postman client disconnected");
+                                    Log.d(TAG, "Postman connection disconnected");
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case NEW_MESSAGE:
-                                    if(clientAuthenticator == null) {
+                                    if (clientAuthenticator == null) {
                                         clientAuthenticator = new ClientAuthenticator(this);
                                         clientAuthenticator.beginAuthentication(mappedItems, clientEvent.msg());
+                                    } else if (clientAuthenticator.isAuthenticated()) {
+                                        Logcat.v(TAG, "Forwarding message, authenticated");
+                                        clientEventStream.onNext(clientEvent);
                                     }
                                     break;
                                 default:
-                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman client [%s]", clientEvent.toString());
+                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman connection [%s]", clientEvent.toString());
                             }
 
 
@@ -144,11 +149,11 @@ public class NIOPostmanClient implements PostmanClient {
 
     @Override
     public boolean isConnected() {
-        return client != null && client.isValid() && messageRouter.isRunning();
+        return client != null && client.isValid() && messageRouter != null && messageRouter.isRunning();
     }
 
     @Override
     public UUID getClientId() {
-        return client.getClientId();
+        return client.getConnectionId();
     }
 }

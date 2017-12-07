@@ -15,7 +15,7 @@ public class ServerClientAuthenticator {
     private final Connection client;
     private Disposable disposable;
 
-    private enum State {
+    public enum State {
         INPROGRESS,
         AUTHENTICATED,
         AUTH_FAILED
@@ -36,7 +36,7 @@ public class ServerClientAuthenticator {
                 .filter(event -> event.isNewMessageFor(client))
                 .doOnSubscribe(disposable -> {
                     events.onNext(State.INPROGRESS);
-                    Logcat.v(TAG, Connection.logMsg("Sending Auth Challenge", client.getClientId()));
+                    Logcat.v(TAG, Connection.logMsg("Sending Auth Challenge", client.getConnectionId()));
                     Auth.AuthChallenge challenge = Auth.AuthChallenge.newBuilder().setHostId(postmanServer.getId())
                             .build();
                     postmanServer.sendMessage(new PostmanMessage(challenge.toByteArray()), client);
@@ -45,7 +45,7 @@ public class ServerClientAuthenticator {
                 .subscribe(clientEvent -> {
                             PostmanMessage msg = clientEvent.message();
                             Auth.AuthResponse response = Auth.AuthResponse.parseFrom(msg.getBody().array());
-                            Logcat.v(TAG, Connection.logMsg("Auth Response [%s]", client.getClientId(), response.toString()));
+                            Logcat.v(TAG, Connection.logMsg("Auth Response [%s]", client.getConnectionId(), response.toString()));
 
                             ResponseOuterClass.Response ok = ResponseOuterClass.Response.newBuilder().setOk(true).build();
                             postmanServer.sendMessage(new PostmanMessage(ok.toByteArray()), client);
@@ -56,7 +56,7 @@ public class ServerClientAuthenticator {
 
                         },
                         error -> {
-                            Logcat.e(TAG, Connection.logMsg("Problem authenticating client", client.getClientId()), error);
+                            Logcat.e(TAG, Connection.logMsg("Problem authenticating connection", client.getConnectionId()), error);
                             events.onNext(State.AUTH_FAILED);
                             events.onComplete();
                         });

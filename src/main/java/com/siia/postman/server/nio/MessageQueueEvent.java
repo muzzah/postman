@@ -66,7 +66,7 @@ class MessageQueueEvent {
     @Override
     public String toString() {
         return "MessageQueueEvent{" +
-                "client=" + client +
+                "connection=" + client +
                 ", type=" + type +
                 ", attributes=" + attributes +
                 '}';

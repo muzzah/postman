@@ -43,15 +43,15 @@ public class ServerEvent {
         return type;
     }
 
-    public boolean isNewMessageFor() {
+    public boolean isNewMessage() {
         return Type.NEW_MESSAGE.equals(type);
     }
 
     boolean isNewMessageFor(Connection client) {
-        return Type.NEW_MESSAGE.equals(type) && client().equals(client);
+        return Type.NEW_MESSAGE.equals(type) && connection().equals(client);
     }
 
-    public Connection client() {
+    public Connection connection() {
         return (Connection) attributes.get(Attribute.CLIENT);
     }
 

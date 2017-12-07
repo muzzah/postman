@@ -1,45 +1,52 @@
 package com.siia.postman.classroom;
 
+import android.util.Log;
+
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.discovery.PostmanDiscoveryEvent;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanServer;
-import com.siia.postman.server.ServerEvent;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.inject.Provider;
 
 import io.reactivex.Scheduler;
 import io.reactivex.disposables.Disposable;
-import io.reactivex.subjects.PublishSubject;
 
 import static com.siia.commons.core.check.Check.checkState;
 
 public class ClassroomOperations {
 
     private static final String TAG = Logcat.getTag();
+    private static final long RECONNECT_DELAY_SECONDS = 5;
     private final PostmanServer postmanServer;
     private final PostmanDiscoveryService discoveryService;
+    private Provider<PostmanClient> clientProvider;
     private final Scheduler computationScheduler;
     private final AtomicBoolean isDiscoveryActive;
-    private final PostmanClient postmanClient;
+    private PostmanClient postmanClient;
     private Disposable clientDisposable;
+    private Disposable discoveryDisposable;
 
 
     public ClassroomOperations(PostmanServer postmanServer, PostmanDiscoveryService discoveryService,
-                               PostmanClient postmanClient, Scheduler computationScheduler) {
+                               Provider<PostmanClient> clientProvider,
+                               Scheduler computationScheduler) {
         this.postmanServer = postmanServer;
         this.discoveryService = discoveryService;
+        this.clientProvider = clientProvider;
         this.computationScheduler = computationScheduler;
         this.isDiscoveryActive = new AtomicBoolean(false);
-        this.postmanClient = postmanClient;
     }
 
     public void begin() {
         checkState(!hasClassStarted(), "Classroom already running");
-        PublishSubject<ServerEvent> serverEventsStream = postmanServer.getServerEventsStream();
-        serverEventsStream
+        postmanServer.getServerEventsStream()
                 .observeOn(computationScheduler)
+                .filter(serverEvent -> !serverEvent.isNewMessage())
                 .subscribe(
                         event -> {
                             switch (event.type()) {
@@ -73,8 +80,8 @@ public class ClassroomOperations {
             //Service Broadcast should be stopped through event coming through
         }
 
-        if (postmanClient.isConnected()) {
-            if(clientDisposable != null) {
+        if (postmanClient != null && postmanClient.isConnected()) {
+            if (clientDisposable != null) {
                 clientDisposable.dispose();
             }
             postmanClient.disconnect();
@@ -90,28 +97,36 @@ public class ClassroomOperations {
     }
 
     public boolean hasClassStarted() {
-        return postmanServer.isRunning() || postmanClient.isConnected();
+        return postmanServer.isRunning() || (postmanClient != null && postmanClient.isConnected());
     }
 
     public boolean hasConnectionAlreadyStarted() {
         return isDiscoveryActive.get();
     }
 
-    public void connect() {
+    public void connectToClassroom() {
         checkState(!isDiscoveryActive.get() && !hasClassStarted(), "Discovery already started");
         if (isDiscoveryActive.compareAndSet(false, true)) {
-            discoveryService.getDiscoveryEventStream()
+            discoveryDisposable = discoveryService.getDiscoveryEventStream()
                     .observeOn(computationScheduler)
                     .subscribe(
                             discoveryEvent -> {
 
                                 switch (discoveryEvent.type()) {
                                     case FOUND:
-                                        connectToServerAsClient(discoveryEvent);
-                                        isDiscoveryActive.set(false);
+                                        if (postmanClient != null && postmanClient.isConnected()) {
+                                            Log.w(TAG, "Service found but still connected");
+                                            return;
+                                        }
+
+                                        connectToServer(discoveryEvent);
+
                                         break;
-                                    case NOT_FOUND:
-                                        isDiscoveryActive.set(false);
+                                    case LOST:
+                                        if (postmanClient != null && postmanClient.isConnected()) {
+                                            Log.w(TAG, "Service lost but still connected");
+                                            return;
+                                        }
                                         break;
                                     case STARTED:
                                         isDiscoveryActive.set(true);
@@ -121,6 +136,7 @@ public class ClassroomOperations {
                             },
                             error -> {
                                 isDiscoveryActive.set(false);
+                                reconnect();
                             },
                             () -> {
                                 isDiscoveryActive.set(false);
@@ -130,22 +146,35 @@ public class ClassroomOperations {
         }
     }
 
-    private void connectToServerAsClient(PostmanDiscoveryEvent discoveryEvent) {
+    private void connectToServer(PostmanDiscoveryEvent discoveryEvent) {
+        postmanClient = clientProvider.get();
         clientDisposable = postmanClient.getClientEventStream()
                 .observeOn(computationScheduler)
-                .subscribe(postmanClientEvent -> {
+                .doOnSubscribe(disposable -> postmanClient.connect(discoveryEvent.getHotname(), discoveryEvent.getPort()))
+                .subscribe(
+                        postmanClientEvent -> {
                             switch (postmanClientEvent.type()) {
                                 case CONNECTED:
                                 case DISCONNECTED:
                                 default:
                             }
                         },
-                        error -> {
-                        },
-                        () -> {
-                        });
+                        //Connection closed
+                        error -> reconnect());
 
-        postmanClient.connect(discoveryEvent.getHotname(), discoveryEvent.getPort());
+    }
+
+    private void reconnect() {
+        isDiscoveryActive.set(false);
+        discoveryDisposable.dispose();
+        discoveryService.stopDiscovery();
+        try {
+            Thread.sleep(TimeUnit.SECONDS.toMillis(RECONNECT_DELAY_SECONDS));
+        } catch (InterruptedException e) {
+            Log.e(TAG, "Thread waiting ");
+        } finally {
+            connectToClassroom();
+        }
     }
 
 

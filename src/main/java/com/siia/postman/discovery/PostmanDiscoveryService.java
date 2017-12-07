@@ -12,4 +12,6 @@ public interface PostmanDiscoveryService {
 
     PublishSubject<PostmanDiscoveryEvent> getDiscoveryEventStream();
     void discoverService();
+
+    void stopDiscovery();
 }

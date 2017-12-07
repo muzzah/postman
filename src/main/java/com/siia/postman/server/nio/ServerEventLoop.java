@@ -17,7 +17,6 @@ import java.nio.channels.SocketChannel;
 import java.util.UUID;
 
 import io.reactivex.Completable;
-import io.reactivex.Observable;
 import io.reactivex.Scheduler;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -59,7 +58,7 @@ class ServerEventLoop {
     }
 
 
-    Observable<ServerEvent> getServerEventsStream() {
+    PublishSubject<ServerEvent> getServerEventsStream() {
         return serverEventStream;
 
     }
@@ -75,7 +74,7 @@ class ServerEventLoop {
                                     serverEventStream.onNext(ServerEvent.newClient(event.client()));
                                     break;
                                 case CLIENT_REGISTRATION_FAILED:
-                                    Log.w(TAG, "Problem when registering client");
+                                    Log.w(TAG, "Problem when registering connection");
                                     break;
                                 case CLIENT_UNREGISTERED:
                                     serverEventStream.onNext(ServerEvent.clientDisconnected(event.client()));
@@ -180,14 +179,14 @@ class ServerEventLoop {
 
     private NIOConnection acceptClientConnection() {
 
-        d(TAG, "Accepting new client channel");
+        d(TAG, "Accepting new connection channel");
         SocketChannel clientSocketChannel = null;
         try {
             clientSocketChannel = serverSocketChannel.accept();
             clientSocketChannel.configureBlocking(false);
 
         } catch (IOException e) {
-            w(TAG, "Couldnt accept client channel", e);
+            w(TAG, "Couldnt accept connection channel", e);
             IO.closeQuietly(clientSocketChannel);
             return null;
         }
