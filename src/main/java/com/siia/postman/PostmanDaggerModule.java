@@ -8,6 +8,7 @@ import com.siia.postman.classroom.ClassroomOperations;
 import com.siia.postman.discovery.AndroidNsdDiscoveryService;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
+import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
 import com.siia.postman.server.nio.NIOPostmanClient;
 import com.siia.postman.server.nio.NIOPostmanServer;
@@ -32,8 +33,8 @@ class PostmanDaggerModule {
 
 
     @Provides
-    PostmanServer postmanServer(){
-        return new NIOPostmanServer();
+    PostmanServer postmanServer(Provider<PostmanMessage> messageProvider){
+        return new NIOPostmanServer(messageProvider);
     }
 
     @Provides
@@ -42,7 +43,7 @@ class PostmanDaggerModule {
     }
 
     @Provides
-    PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler){
-        return new NIOPostmanClient(scheduler);
+    PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler, Provider<PostmanMessage> messageProvider){
+        return new NIOPostmanClient(scheduler, messageProvider);
     }
 }

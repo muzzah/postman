@@ -14,6 +14,8 @@ import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
 import java.util.UUID;
 
+import javax.inject.Provider;
+
 import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.Scheduler;
@@ -27,12 +29,13 @@ public class NIOPostmanClient implements PostmanClient {
     private PublishSubject<PostmanClientEvent> clientEventStream;
     private NIOConnection client;
     private final Scheduler computation;
+    private final Provider<PostmanMessage> messageProvider;
     private ClientAuthenticator clientAuthenticator;
 
 
-    public NIOPostmanClient(Scheduler computation) {
+    public NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider) {
         this.computation = computation;
-
+        this.messageProvider = messageProvider;
     }
 
     @Override
@@ -116,7 +119,7 @@ public class NIOPostmanClient implements PostmanClient {
                 InetSocketAddress serverAdress = new InetSocketAddress(host, port);
                 socketChannel.connect(serverAdress);
                 socketChannel.configureBlocking(false);
-                client = new NIOConnection(UUID.randomUUID(), socketChannel);
+                client = new NIOConnection(UUID.randomUUID(), socketChannel, messageProvider);
                 messageRouter.addClient(client);
                 subscriber.onComplete();
             } catch (IOException exception) {

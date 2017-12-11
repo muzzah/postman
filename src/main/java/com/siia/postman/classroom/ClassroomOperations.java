@@ -6,22 +6,39 @@ import com.siia.commons.core.log.Logcat;
 import com.siia.postman.discovery.PostmanDiscoveryEvent;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
+import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.inject.Provider;
 
+import io.reactivex.Observable;
 import io.reactivex.Scheduler;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.schedulers.Schedulers;
 
 import static com.siia.commons.core.check.Check.checkState;
 
 public class ClassroomOperations {
+    public enum Answer {
+        A, B, C, D;
+
+        public boolean isEqualOrAfter(Answer answer) {
+            return ordinal() >= answer.ordinal();
+        }
+
+        public int numberOfAnswers() {
+            return ordinal()+1;
+        }
+    }
+
+    public static final int MAX_ANSWERS = Answer.values().length;
+    public static final int MIN_ANSWERS = 2;
+
 
     private static final String TAG = Logcat.getTag();
-    private static final long RECONNECT_DELAY_SECONDS = 5;
+    private static final long RECONNECT_DELAY_MILLISECONDS = 5000;
     private final PostmanServer postmanServer;
     private final PostmanDiscoveryService discoveryService;
     private Provider<PostmanClient> clientProvider;
@@ -169,7 +186,7 @@ public class ClassroomOperations {
         discoveryDisposable.dispose();
         discoveryService.stopDiscovery();
         try {
-            Thread.sleep(TimeUnit.SECONDS.toMillis(RECONNECT_DELAY_SECONDS));
+            Thread.sleep(RECONNECT_DELAY_MILLISECONDS);
         } catch (InterruptedException e) {
             Log.e(TAG, "Thread waiting ");
         } finally {
@@ -178,5 +195,22 @@ public class ClassroomOperations {
     }
 
 
+    public Observable<ClassUnderstandingEvent> gainUnderstanding(String name, int numberOfAnswers) {
+        return postmanServer.getServerEventsStream().observeOn(Schedulers.computation())
+                .doOnSubscribe(disposable -> {
+                    Task.TaskCommand cmd = Task.TaskCommand.newBuilder().setTaskType(Task.TaskType.QUIZ)
+                            .setQuizCmd(Task.QuizCommand.newBuilder().setQuestionCount(numberOfAnswers))
+                            .build();
+
+                    PostmanMessage msg = new PostmanMessage(cmd.toByteArray());
+                    postmanServer.broadcastMessage(msg);
+                })
+                .filter(serverEvent -> serverEvent.isNewMessage() && serverEvent.message().ofType(Task.TaskUpdate.class))
+                .map(serverEvent -> {
+                    Task.TaskUpdate update = Task.TaskUpdate.parseFrom(serverEvent.message().getBody().array());
+                    return new ClassUnderstandingEvent(numberOfAnswers);
+                });
+
+    }
 }
 

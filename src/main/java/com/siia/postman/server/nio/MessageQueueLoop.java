@@ -194,16 +194,14 @@ class MessageQueueLoop {
             if(selectionKey.isReadable()) {
 
                 try {
-                    if(client.read()) {
-
-                        PostmanMessage msg = client.getNextMessage();
-                        messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(client, msg));
-                    }
+                    client.read();
                 } catch (Exception e) {
                     Logcat.w(TAG, "Lost connection : %s", e.getMessage());
                     cleanupClient(client);
                     return;
                 }
+
+                client.filledMessages().forEach(msg -> messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(client, msg)));
             }
 
             if (selectionKey.isWritable()) {

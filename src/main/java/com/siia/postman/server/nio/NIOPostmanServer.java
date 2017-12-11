@@ -13,6 +13,8 @@ import java.net.InetSocketAddress;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListSet;
 
+import javax.inject.Provider;
+
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -30,9 +32,11 @@ public class NIOPostmanServer implements PostmanServer {
     private final ConcurrentSkipListSet<Connection> clients;
     private final UUID id;
     private Disposable newMessageDisposable;
+    private final Provider<PostmanMessage> messageProvider;
 
-    public NIOPostmanServer() {
-        this.bindAddress = new InetSocketAddress("0.0.0.0", 8888);
+    public NIOPostmanServer(Provider<PostmanMessage> messageProvider) {
+        this.messageProvider = messageProvider;
+        this.bindAddress = new InetSocketAddress("0.0.0.0", 8889);
         this.serverEventsStream = PublishSubject.create();
         this.clients = new ConcurrentSkipListSet<>();
         this.id = UUID.randomUUID();
@@ -66,7 +70,7 @@ public class NIOPostmanServer implements PostmanServer {
     public void serverStart() {
         checkState(!isRunning(), "Server is already running");
 
-        serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation());
+        serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation(), messageProvider);
 
 
         eventDisposable = serverEventLoop.getServerEventsStream()

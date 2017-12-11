@@ -5,6 +5,7 @@ import android.util.Log;
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.Connection;
+import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.ServerEvent;
 
 import java.io.IOException;
@@ -15,6 +16,8 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.UUID;
+
+import javax.inject.Provider;
 
 import io.reactivex.Completable;
 import io.reactivex.Scheduler;
@@ -32,12 +35,14 @@ class ServerEventLoop {
     private Selector clientJoinSelector;
     private final InetSocketAddress bindAddress;
     private final Scheduler computation;
+    private final Provider<PostmanMessage> messageProvider;
     private final MessageQueueLoop messageRouter;
-    private PublishSubject<ServerEvent> serverEventStream;
+    private final PublishSubject<ServerEvent> serverEventStream;
 
-    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation) {
+    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider) {
         this.bindAddress = bindAddress;
         this.computation = computation;
+        this.messageProvider = messageProvider;
         this.messageRouter = new MessageQueueLoop();
         serverEventStream = PublishSubject.create();
 
@@ -190,7 +195,7 @@ class ServerEventLoop {
             IO.closeQuietly(clientSocketChannel);
             return null;
         }
-        return new NIOConnection(UUID.randomUUID(), clientSocketChannel);
+        return new NIOConnection(UUID.randomUUID(), clientSocketChannel, messageProvider);
 
     }
 

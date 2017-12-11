@@ -45,7 +45,7 @@ public class PostmanDiscoveryEvent {
         return type;
     }
 
-    static PostmanDiscoveryEvent found(InetAddress address, int port) {
+    public static PostmanDiscoveryEvent found(InetAddress address, int port) {
         return new PostmanDiscoveryEvent(address, port, Type.FOUND);
     }
 

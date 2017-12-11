@@ -1,7 +1,9 @@
 package com.siia.postman.classroom;
 
+import com.siia.postman.discovery.PostmanDiscoveryEvent;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
+import com.siia.postman.server.PostmanClientEvent;
 import com.siia.postman.server.PostmanServer;
 import com.siia.postman.server.ServerEvent;
 
@@ -9,6 +11,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+
+import java.net.InetAddress;
+
+import javax.inject.Provider;
 
 import io.reactivex.schedulers.TestScheduler;
 import io.reactivex.subjects.PublishSubject;
@@ -26,36 +32,41 @@ public class ClassroomOperationsTest {
     @Mock
     private PostmanServer postmanServer;
     @Mock
-    private PostmanClient postmanClient;
+    private Provider<PostmanClient> provider;
     private PublishSubject<ServerEvent> serverEventStream;
     private TestScheduler computationScheduler;
+    @Mock
+    private PostmanClient client;
 
     @Before
     public void setUp() throws Exception {
         MockitoAnnotations.initMocks(this);
+        when(provider.get()).thenReturn(client);
         serverEventStream = PublishSubject.create();
         computationScheduler = new TestScheduler();
-        classroomOperations = new ClassroomOperations(postmanServer, discoveryService, postmanClient, computationScheduler);
+        classroomOperations = new ClassroomOperations(postmanServer, discoveryService, provider, computationScheduler);
+        when(provider.get()).thenReturn(client);
     }
 
     @Test
     public void classNotStartedIfServerAndClientNotRunning() throws Exception {
         when(postmanServer.isRunning()).thenReturn(false);
-        when(postmanClient.isConnected()).thenReturn(false);
+        when(client.isConnected()).thenReturn(false);
         assertThat(classroomOperations.hasClassStarted()).isFalse();
     }
 
     @Test
     public void classStartedIfClientConnected() throws Exception {
+        connectClient();
         when(postmanServer.isRunning()).thenReturn(false);
-        when(postmanClient.isConnected()).thenReturn(true);
+        when(client.isConnected()).thenReturn(true);
         assertThat(classroomOperations.hasClassStarted()).isTrue();
     }
 
     @Test
     public void classStartedIfServerRunning() throws Exception {
         when(postmanServer.isRunning()).thenReturn(true);
-        when(postmanClient.isConnected()).thenReturn(false);
+        when(client.isConnected()).thenReturn(false);
         assertThat(classroomOperations.hasClassStarted()).isTrue();
     }
 
@@ -132,27 +143,39 @@ public class ClassroomOperationsTest {
     @Test(expected = IllegalStateException.class)
     public void throwsExceptionIfTryingToEndClassWhenNotRunning() {
         when(postmanServer.isRunning()).thenReturn(false);
-        when(postmanClient.isConnected()).thenReturn(false);
+        when(client.isConnected()).thenReturn(false);
         classroomOperations.end();
     }
 
     @Test
     public void stopsServerButNotClient() {
         when(postmanServer.isRunning()).thenReturn(true);
-        when(postmanClient.isConnected()).thenReturn(false);
+        when(client.isConnected()).thenReturn(false);
         classroomOperations.end();
         verify(postmanServer).stopServer();
-        verify(postmanClient, never()).disconnect();
+        verify(client, never()).disconnect();
 
     }
 
     @Test
     public void stopsClientButNotServer() {
+        connectClient();
+
         when(postmanServer.isRunning()).thenReturn(false);
-        when(postmanClient.isConnected()).thenReturn(true);
+        when(client.isConnected()).thenReturn(true);
         classroomOperations.end();
         verify(postmanServer, never()).stopServer();
-        verify(postmanClient).disconnect();
+        verify(client).disconnect();
+    }
+
+    private void connectClient() {
+        PublishSubject<PostmanDiscoveryEvent> discoveryEventStream = PublishSubject.create();
+        PublishSubject<PostmanClientEvent> clientEventStream = PublishSubject.create();
+        when(discoveryService.getDiscoveryEventStream()).thenReturn(discoveryEventStream);
+        when(client.getClientEventStream()).thenReturn(clientEventStream);
+        classroomOperations.connectToClassroom();
+        discoveryEventStream.onNext(PostmanDiscoveryEvent.found(InetAddress.getLoopbackAddress(),22));
+        computationScheduler.triggerActions();
     }
 
 }

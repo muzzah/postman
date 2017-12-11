@@ -12,7 +12,13 @@ import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.util.List;
+import java.util.Queue;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
+
+import javax.inject.Provider;
 
 class NIOConnection implements Connection {
     private static final String TAG = Logcat.getTag();
@@ -21,32 +27,47 @@ class NIOConnection implements Connection {
 
     private final SocketChannel clientSocketChannel;
     private final UUID connectionId;
+    private Provider<PostmanMessage> messageProvider;
     private SelectionKey selectionKey;
-    private PostmanMessage currentMessage;
+    private Queue<PostmanMessage> readMessages;
 
-    NIOConnection(UUID connectionId, SocketChannel clientSocketChannel) {
-        this.clientSocketChannel = clientSocketChannel;
-        this.connectionId = connectionId;
-        buffer = ByteBuffer.allocate(BUFFER_SIZE);
+    NIOConnection(UUID connectionId, SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider) {
+        this(connectionId,clientSocketChannel,messageProvider,  ByteBuffer.allocate(BUFFER_SIZE), new ConcurrentLinkedQueue<>());
     }
 
-    boolean read() throws IOException {
-        if(currentMessage == null || currentMessage.isFilled()) {
-            currentMessage = new PostmanMessage();
+
+    NIOConnection(UUID connectionId, SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider, ByteBuffer buffer, Queue<PostmanMessage> readMessages) {
+        this.clientSocketChannel = clientSocketChannel;
+        this.connectionId = connectionId;
+        this.messageProvider = messageProvider;
+        this.buffer = buffer;
+        this.readMessages = readMessages;
+    }
+
+    void read() throws IOException {
+        PostmanMessage currentMessage = readMessages.peek();
+
+        if(currentMessage == null || currentMessage.isFull()) {
+            currentMessage = messageProvider.get();
+            readMessages.offer(currentMessage);
         }
 
         buffer.clear();
 
         int bytesRead;
 
-        while((bytesRead = getSocketChannel().read(buffer)) > 0) {
+        while((bytesRead = clientSocketChannel.read(buffer)) > 0) {
 
             Logcat.v(TAG, "[%s] read %d bytes", connectionId.toString(), bytesRead);
             buffer.flip();
-            if(currentMessage.read(buffer)) {
-                //TODO We may have read in less than the buffer if a frame over lap occurs here
-                Logcat.v(TAG, "Message read : [%s]", currentMessage.toString());
-                return true;
+
+            while(buffer.hasRemaining()) {
+                if (currentMessage.read(buffer)) {
+                    //TODO We may have read in less than the buffer if a frame over lap occurs here
+                    Logcat.v(TAG, "Message read : [%s]", currentMessage.toString());
+                    currentMessage = messageProvider.get();
+                    readMessages.offer(currentMessage);
+                }
             }
 
             buffer.clear();
@@ -55,8 +76,6 @@ class NIOConnection implements Connection {
         if (bytesRead == -1) {
             throw new IOException("Invalid bytes read from channel");
         }
-
-        return false;
     }
 
     void setWriteInterest() throws ClosedChannelException {
@@ -97,12 +116,13 @@ class NIOConnection implements Connection {
     }
 
     boolean sendMessage(PostmanMessage msg) throws IOException {
-        ByteBuffer out = msg.getFrame();
+        ByteBuffer out = msg.buffer();
         Logcat.v(TAG, Connection.logMsg("Sending msg : " + msg.toString(), getConnectionId()));
         int numWritten = 0;
 
         while (selectionKey.isWritable() && out.hasRemaining() && selectionKey.isValid() && clientSocketChannel.isOpen()) {
-            numWritten += clientSocketChannel.write(out);
+            int outBytes = clientSocketChannel.write(out);
+            numWritten += outBytes;
             Logcat.v(TAG, Connection.logMsg("wrote %d / %d bytes", getConnectionId(), numWritten, out.limit()));
         }
 
@@ -143,7 +163,13 @@ class NIOConnection implements Connection {
 
 
     PostmanMessage getNextMessage() {
-        return currentMessage;
+        return null;
+    }
+
+    List<PostmanMessage> filledMessages() {
+        List<PostmanMessage> readyMessages = readMessages.stream().filter(PostmanMessage::isFull).collect(Collectors.toList());
+        readMessages.removeAll(readyMessages);
+        return readyMessages;
     }
 
     @Override
