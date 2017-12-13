@@ -10,12 +10,15 @@ import java.util.Map;
 class MessageQueueEvent {
 
 
+    public static MessageQueueEvent ready() {
+        return new MessageQueueEvent(null, Type.READY);
+    }
 
     enum Type {
         CLIENT_REGISTERED,
         CLIENT_REGISTRATION_FAILED,
         CLIENT_UNREGISTERED,
-        MESSAGE
+        READY, MESSAGE
     }
 
     private NIOConnection client;
@@ -42,9 +45,6 @@ class MessageQueueEvent {
 
     PostmanMessage msg() {
         return (PostmanMessage) attributes.get(Type.MESSAGE);
-    }
-    boolean isNewMessage() {
-        return Type.MESSAGE.equals(type);
     }
 
     static MessageQueueEvent clientRegistered(@NonNull NIOConnection client) {

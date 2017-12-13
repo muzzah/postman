@@ -9,6 +9,8 @@ import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
 
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.inject.Provider;
@@ -29,7 +31,7 @@ public class ClassroomOperations {
         }
 
         public int numberOfAnswers() {
-            return ordinal()+1;
+            return ordinal() + 1;
         }
     }
 
@@ -44,6 +46,7 @@ public class ClassroomOperations {
     private Provider<PostmanClient> clientProvider;
     private final Scheduler computationScheduler;
     private final AtomicBoolean isDiscoveryActive;
+    private final AtomicBoolean isRestarting;
     private PostmanClient postmanClient;
     private Disposable clientDisposable;
     private Disposable discoveryDisposable;
@@ -57,6 +60,7 @@ public class ClassroomOperations {
         this.clientProvider = clientProvider;
         this.computationScheduler = computationScheduler;
         this.isDiscoveryActive = new AtomicBoolean(false);
+        this.isRestarting = new AtomicBoolean(false);
     }
 
     public void begin() {
@@ -172,7 +176,14 @@ public class ClassroomOperations {
                         postmanClientEvent -> {
                             switch (postmanClientEvent.type()) {
                                 case CONNECTED:
+                                    break;
                                 case DISCONNECTED:
+                                    reconnect();
+                                    break;
+                                case NEW_MESSAGE:
+                                    postmanClient.sendMessage(new PostmanMessage(Task.TaskResponse.newBuilder().setTaskType(Task.TaskType.QUIZ)
+                                            .setQuizUpdate(Task.QuizUpdate.newBuilder().setResponse(3)).build()));
+                                    break;
                                 default:
                             }
                         },
@@ -182,15 +193,25 @@ public class ClassroomOperations {
     }
 
     private void reconnect() {
-        isDiscoveryActive.set(false);
-        discoveryDisposable.dispose();
-        discoveryService.stopDiscovery();
-        try {
-            Thread.sleep(RECONNECT_DELAY_MILLISECONDS);
-        } catch (InterruptedException e) {
-            Log.e(TAG, "Thread waiting ");
-        } finally {
-            connectToClassroom();
+        if(isRestarting.compareAndSet(false, true)) {
+            Logcat.d(TAG, "Reconnecting");
+            isDiscoveryActive.set(false);
+            discoveryDisposable.dispose();
+            discoveryService.stopDiscovery();
+            if (clientDisposable != null) {
+                clientDisposable.dispose();
+            }
+
+            TimerTask task = new TimerTask() {
+                @Override
+                public void run() {
+                    connectToClassroom();
+                    isRestarting.set(false);
+                }
+            };
+
+            Timer timer = new Timer();
+            timer.schedule(task, RECONNECT_DELAY_MILLISECONDS);
         }
     }
 
@@ -202,12 +223,12 @@ public class ClassroomOperations {
                             .setQuizCmd(Task.QuizCommand.newBuilder().setQuestionCount(numberOfAnswers))
                             .build();
 
-                    PostmanMessage msg = new PostmanMessage(cmd.toByteArray());
+                    PostmanMessage msg = new PostmanMessage(cmd);
                     postmanServer.broadcastMessage(msg);
                 })
-                .filter(serverEvent -> serverEvent.isNewMessage() && serverEvent.message().ofType(Task.TaskUpdate.class))
+                .filter(serverEvent -> serverEvent.isNewMessage() && serverEvent.message().isOfType(Task.TaskResponse.class))
                 .map(serverEvent -> {
-                    Task.TaskUpdate update = Task.TaskUpdate.parseFrom(serverEvent.message().getBody().array());
+                    Task.TaskResponse update = serverEvent.message().getProtoObj();
                     return new ClassUnderstandingEvent(numberOfAnswers);
                 });
 

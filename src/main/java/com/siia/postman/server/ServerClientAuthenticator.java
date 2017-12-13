@@ -36,29 +36,29 @@ public class ServerClientAuthenticator {
                 .filter(event -> event.isNewMessageFor(client))
                 .doOnSubscribe(disposable -> {
                     events.onNext(State.INPROGRESS);
-                    Logcat.v(TAG, Connection.logMsg("Sending Auth Challenge", client.getConnectionId()));
                     Auth.AuthChallenge challenge = Auth.AuthChallenge.newBuilder().setHostId(postmanServer.getId())
                             .build();
-                    postmanServer.sendMessage(new PostmanMessage(challenge.toByteArray()), client);
+                    postmanServer.sendMessage(new PostmanMessage(challenge), client);
 
                 })
                 .subscribe(clientEvent -> {
                             PostmanMessage msg = clientEvent.message();
-                            Auth.AuthResponse response = Auth.AuthResponse.parseFrom(msg.getBody().array());
-                            Logcat.v(TAG, Connection.logMsg("Auth Response [%s]", client.getConnectionId(), response.toString()));
+                            Auth.AuthResponse response = msg.getProtoObj();
 
-                            ResponseOuterClass.Response ok = ResponseOuterClass.Response.newBuilder().setOk(true).build();
-                            postmanServer.sendMessage(new PostmanMessage(ok.toByteArray()), client);
+                            MessageOuterClass.Response ok = MessageOuterClass.Response.newBuilder().setOk(true).build();
+                            postmanServer.sendMessage(new PostmanMessage(ok), client);
 
                             events.onNext(State.AUTHENTICATED);
                             events.onComplete();
+                            disposable.dispose();
 
 
                         },
                         error -> {
-                            Logcat.e(TAG, Connection.logMsg("Problem authenticating connection", client.getConnectionId()), error);
+                            Logcat.e(TAG, client.getConnectionId(),"Problem authenticating connection", error);
                             events.onNext(State.AUTH_FAILED);
                             events.onComplete();
+                            disposable.dispose();
                         });
 
         return events;

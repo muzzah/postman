@@ -3,22 +3,22 @@ package com.siia.postman.server.nio;
 
 import android.util.Log;
 
+import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.ClientAuthenticator;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanClientEvent;
 import com.siia.postman.server.PostmanMessage;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
 import java.util.UUID;
 
 import javax.inject.Provider;
 
-import io.reactivex.Completable;
 import io.reactivex.Observable;
 import io.reactivex.Scheduler;
+import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
@@ -31,11 +31,13 @@ public class NIOPostmanClient implements PostmanClient {
     private final Scheduler computation;
     private final Provider<PostmanMessage> messageProvider;
     private ClientAuthenticator clientAuthenticator;
+    private final CompositeDisposable disposables;
 
 
     public NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider) {
         this.computation = computation;
         this.messageProvider = messageProvider;
+        this.disposables = new CompositeDisposable();
     }
 
     @Override
@@ -63,20 +65,20 @@ public class NIOPostmanClient implements PostmanClient {
                                     messageRouter.shutdown();
                                     return PostmanClientEvent.clientDisconnected();
                                 default:
-                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman connection [%s]", event.toString());
                                     return PostmanClientEvent.ignoreEvent();
-
                             }
                         });
-        mappedItems
+        disposables.add(mappedItems
                 .subscribe(
                         clientEvent -> {
                             switch (clientEvent.type()) {
                                 case CONNECTED:
                                     Log.d(TAG, "Postman connection connected");
+                                    clientEventStream.onNext(clientEvent);
                                     break;
                                 case DISCONNECTED:
                                     Log.d(TAG, "Postman connection disconnected");
+                                    disconnect();
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case NEW_MESSAGE:
@@ -84,59 +86,51 @@ public class NIOPostmanClient implements PostmanClient {
                                         clientAuthenticator = new ClientAuthenticator(this);
                                         clientAuthenticator.beginAuthentication(mappedItems, clientEvent.msg());
                                     } else if (clientAuthenticator.isAuthenticated()) {
-                                        Logcat.v(TAG, "Forwarding message, authenticated");
                                         clientEventStream.onNext(clientEvent);
                                     }
                                     break;
+                                case IGNORE:
+                                    break;
                                 default:
-                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman connection [%s]", clientEvent.toString());
+                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman connection [%s]", clientEvent.type());
                             }
 
 
                         },
                         error -> {
-                            Logcat.e(TAG, "Client Message router loop ended unexpectedly", error);
                             disconnect();
                             clientEventStream.onError(error);
                         },
-                        () ->
-
-                        {
-                            Logcat.i(TAG, "Client Message loop completed");
+                        () -> {
+                            disconnect();
                             clientEventStream.onComplete();
-                        });
+                        }));
 
 
-        Completable.create(subscriber ->
+        disposables.add(messageRouter.messageRouterEventStream().observeOn(Schedulers.io())
+                .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
+                .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
+                .subscribe(
+                        messageQueueEvent -> {
+                            SocketChannel socketChannel = null;
+                            try {
+                                InetSocketAddress serverAdress = new InetSocketAddress(host, port);
+                                socketChannel = SocketChannel.open();
+                                socketChannel.connect(serverAdress);
+                                socketChannel.configureBlocking(false);
+                            }catch (Exception e) {
+                                IO.closeQuietly(socketChannel);
+                                disconnect();
+                                clientEventStream.onError(e);
+                                return;
+                            }
+                            client = new NIOConnection(UUID.randomUUID(), socketChannel, messageProvider);
+                            messageRouter.addClient(client);
+                        },
+                        error -> {
+                            //Leave error handling to above subscriber
+                        }));
 
-        {
-
-
-            try {
-                SocketChannel socketChannel = SocketChannel.open();
-                messageRouter.startMessageQueueLoop();
-
-                InetSocketAddress serverAdress = new InetSocketAddress(host, port);
-                socketChannel.connect(serverAdress);
-                socketChannel.configureBlocking(false);
-                client = new NIOConnection(UUID.randomUUID(), socketChannel, messageProvider);
-                messageRouter.addClient(client);
-                subscriber.onComplete();
-            } catch (IOException exception) {
-                Log.d(TAG, "Problem when connecting to server", exception);
-                messageRouter.shutdown();
-                subscriber.onError(exception);
-            }
-
-
-        }).subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.computation())
-                .subscribe(() -> Logcat.v(TAG, "Connected"),
-                        error ->
-                        {
-                            Logcat.e(TAG, "Error received %s", error);
-                            clientEventStream.onError(error);
-                        });
     }
 
     @Override
@@ -146,8 +140,16 @@ public class NIOPostmanClient implements PostmanClient {
 
     @Override
     public void disconnect() {
-        messageRouter.shutdown();
-        client.destroy();
+        disposables.clear();
+
+        if(messageRouter != null) {
+            messageRouter.shutdown();
+        }
+
+        if (client != null) {
+            client.destroy();
+        }
+
     }
 
     @Override

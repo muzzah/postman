@@ -1,5 +1,7 @@
 syntax = "proto2";
 
+import "task.proto";
+
 option java_package = "com.siia.postman.server";
 
 message Response {

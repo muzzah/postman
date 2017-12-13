@@ -4,8 +4,8 @@ import android.support.annotation.NonNull;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
-import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.Connection;
+import com.siia.postman.server.PostmanMessage;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -58,13 +58,12 @@ class NIOConnection implements Connection {
 
         while((bytesRead = clientSocketChannel.read(buffer)) > 0) {
 
-            Logcat.v(TAG, "[%s] read %d bytes", connectionId.toString(), bytesRead);
+            Logcat.v(TAG, connectionId, "read %d bytes", bytesRead);
             buffer.flip();
 
             while(buffer.hasRemaining()) {
                 if (currentMessage.read(buffer)) {
-                    //TODO We may have read in less than the buffer if a frame over lap occurs here
-                    Logcat.v(TAG, "Message read : [%s]", currentMessage.toString());
+                    //TODO We may have read in less than the frame if a frame over lap occurs here
                     currentMessage = messageProvider.get();
                     readMessages.offer(currentMessage);
                 }
@@ -100,10 +99,6 @@ class NIOConnection implements Connection {
     }
 
 
-    private SocketChannel getSocketChannel() {
-        return clientSocketChannel;
-    }
-
     @Override
     public boolean isValid() {
         //Adding selector key validity check here causes potential race condition with adding message to queue
@@ -116,19 +111,13 @@ class NIOConnection implements Connection {
     }
 
     boolean sendMessage(PostmanMessage msg) throws IOException {
-        ByteBuffer out = msg.buffer();
-        Logcat.v(TAG, Connection.logMsg("Sending msg : " + msg.toString(), getConnectionId()));
+        ByteBuffer out = msg.frame();
         int numWritten = 0;
 
         while (selectionKey.isWritable() && out.hasRemaining() && selectionKey.isValid() && clientSocketChannel.isOpen()) {
             int outBytes = clientSocketChannel.write(out);
             numWritten += outBytes;
-            Logcat.v(TAG, Connection.logMsg("wrote %d / %d bytes", getConnectionId(), numWritten, out.limit()));
-        }
-
-        if (numWritten == 0) {
-            Logcat.w(TAG, Connection.logMsg("0 bytes of message written [v=%s o=%s]",
-                    getConnectionId(), selectionKey.isValid(), clientSocketChannel.isOpen()));
+            Logcat.v(TAG,getConnectionId(),"wrote %d / %d bytes",  numWritten, out.limit());
         }
 
         return !out.hasRemaining();
@@ -161,10 +150,6 @@ class NIOConnection implements Connection {
                 " }";
     }
 
-
-    PostmanMessage getNextMessage() {
-        return null;
-    }
 
     List<PostmanMessage> filledMessages() {
         List<PostmanMessage> readyMessages = readMessages.stream().filter(PostmanMessage::isFull).collect(Collectors.toList());

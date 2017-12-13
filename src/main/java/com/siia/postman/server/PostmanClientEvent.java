@@ -10,7 +10,7 @@ import java.util.Objects;
 public class PostmanClientEvent {
 
 
-    public boolean isNewMessage() {
+    boolean isNewMessage() {
         return Type.NEW_MESSAGE.equals(type);
     }
 

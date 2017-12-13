@@ -10,8 +10,4 @@ public interface Connection extends Comparable<Connection> {
 
     boolean isValid();
 
-    static String logMsg(String msg, Object... args) {
-        return String.format( "[%s] " + msg, args);
-    }
-
 }

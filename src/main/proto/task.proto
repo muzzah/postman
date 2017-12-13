@@ -12,23 +12,23 @@ message QuizCommand {
 }
 
 message QuizUpdate {
-    required int32 questionCount = 1;
+    required int32 response = 1;
 }
 
 
 message TaskCommand {
 
     required TaskType taskType = 1;
-    oneof one_of_task_type {
+    oneof taskData {
         QuizCommand quizCmd = 2;
     }
 
 }
 
-message TaskUpdate {
+message TaskResponse {
     required TaskType taskType = 1;
-    oneof one_of_task_type {
-        QuizUpdate quizUpdate= 2;
+    oneof responseData {
+        QuizUpdate quizUpdate = 2;
     }
 
 }

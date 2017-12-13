@@ -115,11 +115,9 @@ public class NIOPostmanServer implements PostmanServer {
 
                         },
                         error -> {
-                            Logcat.e(TAG, "Error on server events stream", error);
-                            serverEventsStream.onError(error);
+                            serverEventsStream.onError(new UnexpectedServerShutdownException(error));
                         },
                         () -> {
-                            Logcat.i(TAG, "Server Events stream has ended");
                             serverEventsStream.onComplete();
                         });
 
@@ -132,6 +130,9 @@ public class NIOPostmanServer implements PostmanServer {
                             if (clients.contains(event.connection())) {
                                 serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
                             }
+                        },
+                        error -> {
+                            //Leave error handling to above subscriber
                         }
                 );
 
@@ -155,4 +156,9 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
 
+    private class UnexpectedServerShutdownException extends Throwable {
+        public UnexpectedServerShutdownException(Throwable error) {
+            super(error);
+        }
+    }
 }

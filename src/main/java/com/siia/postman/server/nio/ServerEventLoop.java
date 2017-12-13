@@ -4,7 +4,6 @@ import android.util.Log;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
-import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.ServerEvent;
 
@@ -19,8 +18,8 @@ import java.util.UUID;
 
 import javax.inject.Provider;
 
-import io.reactivex.Completable;
 import io.reactivex.Scheduler;
+import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
@@ -38,6 +37,7 @@ class ServerEventLoop {
     private final Provider<PostmanMessage> messageProvider;
     private final MessageQueueLoop messageRouter;
     private final PublishSubject<ServerEvent> serverEventStream;
+    private final CompositeDisposable disposables;
 
     ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider) {
         this.bindAddress = bindAddress;
@@ -46,16 +46,19 @@ class ServerEventLoop {
         this.messageRouter = new MessageQueueLoop();
         serverEventStream = PublishSubject.create();
 
+        disposables = new CompositeDisposable();
     }
 
     void shutdownLoop() {
 
+        disposables.clear();
         IO.closeQuietly(clientJoinSelector);
 
         IO.closeQuietly(serverSocketChannel.socket());
         IO.closeQuietly(serverSocketChannel);
 
         messageRouter.shutdown();
+
     }
 
     boolean isRunning() {
@@ -70,7 +73,7 @@ class ServerEventLoop {
 
     void startLooping() {
 
-        messageRouter.messageRouterEventStream()
+        disposables.add(messageRouter.messageRouterEventStream()
                 .observeOn(computation)
                 .subscribe(
                         event -> {
@@ -87,64 +90,62 @@ class ServerEventLoop {
                                 case MESSAGE:
                                     serverEventStream.onNext(ServerEvent.newMessage(event.msg(), event.client()));
                                     break;
+                                case READY:
+                                    break;
                                 default:
                                     throw new UnsupportedOperationException("Unhandled event type from server message router");
                             }
 
                         },
                         error -> {
-                            Log.e(TAG, "Message router ended unexpectedly");
                             shutdownLoop();
                             serverEventStream.onError(error);
                         },
-                        () -> Logcat.i(TAG, "Message router loop ended")
-                );
-
-        Completable.<Connection>create(flowableEmitter -> {
-
-
-            try {
-                initialiseServerSocket();
-            } catch (IOException error) {
-                flowableEmitter.onError(error);
-                return;
-            }
-
-            try {
-                messageRouter.startMessageQueueLoop();
-                serverEventStream.onNext(ServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
-
-                while (true) {
-                    v(TAG, "Waiting for incoming connections");
-                    int channelsReady = clientJoinSelector.select();
-
-                    if (!clientJoinSelector.isOpen()) {
-                        break;
-                    }
-
-                    if (clientJoinSelector.selectedKeys().isEmpty()) {
-                        Log.w(TAG, "Selected keys are empty");
-                        continue;
-                    }
-
-                    v(TAG, "%s channel(s) ready in accept loop", channelsReady);
-
-                    processKeyUpdates();
-
-                }
-                flowableEmitter.onComplete();
-            } catch (Exception e) {
-                flowableEmitter.onError(e);
-            }
-        }).subscribeOn(Schedulers.io())
-                .observeOn(computation)
-                .subscribe(
-                        () -> serverEventStream.onComplete(),
-                        error -> {
-                            Logcat.e(TAG, "Error received %s", error);
+                        () -> {
                             shutdownLoop();
-                            serverEventStream.onError(error);
-                        });
+                            serverEventStream.onComplete();
+                        }
+                ));
+
+
+        disposables.add(messageRouter.messageRouterEventStream().observeOn(Schedulers.io())
+                .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
+                .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
+                .subscribe(
+                        messageQueueEvent -> {
+                            if(!initialiseServerSocket()) {
+                              return;
+                            }
+
+                            try {
+                                serverEventStream.onNext(ServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
+
+                                while (true) {
+                                    v(TAG, "Waiting for incoming connections");
+                                    int channelsReady = clientJoinSelector.select();
+
+                                    if (!clientJoinSelector.isOpen()) {
+                                        break;
+                                    }
+
+                                    if (clientJoinSelector.selectedKeys().isEmpty()) {
+                                        Log.w(TAG, "Selected keys are empty");
+                                        continue;
+                                    }
+
+                                    v(TAG, "%s channel(s) ready in accept loop", channelsReady);
+
+                                    processKeyUpdates();
+
+                                }
+                                shutdownLoop();
+                                serverEventStream.onComplete();
+                            } catch (Exception e) {
+                                shutdownLoop();
+                                serverEventStream.onError(e);
+                            }
+                        }));
+
 
     }
 
@@ -171,15 +172,22 @@ class ServerEventLoop {
     }
 
 
-    private void initialiseServerSocket() throws IOException {
-        clientJoinSelector = Selector.open();
-        serverSocketChannel = ServerSocketChannel.open();
-        ServerSocket serverSocket = serverSocketChannel.socket();
-        serverSocket.bind(bindAddress);
-        v(TAG, "Server bound to %s:%d", bindAddress.getAddress().getHostAddress(), serverSocket.getLocalPort());
-        serverSocketChannel.configureBlocking(false);
-        serverSocketChannel.register(clientJoinSelector,
-                SelectionKey.OP_ACCEPT);
+    private boolean initialiseServerSocket() {
+        try {
+            clientJoinSelector = Selector.open();
+            serverSocketChannel = ServerSocketChannel.open();
+            ServerSocket serverSocket = serverSocketChannel.socket();
+            serverSocket.bind(bindAddress);
+            v(TAG, "Server bound to %s:%d", bindAddress.getAddress().getHostAddress(), serverSocket.getLocalPort());
+            serverSocketChannel.configureBlocking(false);
+            serverSocketChannel.register(clientJoinSelector,
+                    SelectionKey.OP_ACCEPT);
+            return true;
+        } catch (Exception e) {
+            shutdownLoop();
+            serverEventStream.onError(e);
+            return false;
+        }
     }
 
     private NIOConnection acceptClientConnection() {

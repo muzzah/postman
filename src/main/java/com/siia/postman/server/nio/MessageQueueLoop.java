@@ -58,11 +58,9 @@ class MessageQueueLoop {
 
         messageQueueForEachClient.clear();
 
-        if(isRunning()) {
+        if (isRunning()) {
             IO.closeQuietly(readWriteSelector);
         }
-
-
 
 
     }
@@ -91,18 +89,18 @@ class MessageQueueLoop {
             NIOConnection.setWriteInterest();
         } catch (ClosedChannelException e) {
             Logcat.e(TAG, "Could not set write interest for connection selector", e);
-            cleanupClient(NIOConnection);
+            cleanupConnection(NIOConnection);
         }
         readWriteSelector.wakeup();
 
 
     }
 
-    private void cleanupClient(NIOConnection client) {
+    private void cleanupConnection(NIOConnection client) {
         Logcat.v(TAG, "Destroying connection %s", client.getConnectionId());
         client.destroy();
         SelectionKey clientKey = client.selectionKey();
-        if(client.selectionKey() != null ) {
+        if (client.selectionKey() != null) {
 
             if (connectedClientsBySelectionKey.containsKey(clientKey)) {
                 connectedClientsBySelectionKey.remove(clientKey);
@@ -118,7 +116,6 @@ class MessageQueueLoop {
         messageRouterEventStream.onNext(MessageQueueEvent.clientUnregistered(client));
 
 
-
     }
 
     /**
@@ -131,16 +128,15 @@ class MessageQueueLoop {
 
         Completable.create(completableEmitter -> {
 
-            try{
+            try {
                 readWriteSelector = Selector.open();
             } catch (IOException e) {
-                Log.e(TAG, "Failed to open selector for writing", e);
+                Log.e(TAG, "Failed to open selector for read/write", e);
                 completableEmitter.onError(e);
                 return;
             }
-
+            messageRouterEventStream.onNext(MessageQueueEvent.ready());
             while (true) {
-
                 int channelsReady = readWriteSelector.select();
 
                 if (!readWriteSelector.isOpen()) {
@@ -164,6 +160,7 @@ class MessageQueueLoop {
                 .subscribe(
                         () -> {
                             Logcat.i(TAG, "Message queue loop completed");
+                            shutdown();
                             messageRouterEventStream.onComplete();
                         },
                         error -> {
@@ -184,31 +181,35 @@ class MessageQueueLoop {
             v(TAG, "SK : v=%s w=%s c=%s r=%s", selectionKey.isValid(),
                     selectionKey.isWritable(), selectionKey.isConnectable(), selectionKey.isReadable());
 
-            NIOConnection client = connectedClientsBySelectionKey.get(selectionKey);
+            NIOConnection connection = connectedClientsBySelectionKey.get(selectionKey);
 
             if (!selectionKey.isValid()) {
-                cleanupClient(client);
+                cleanupConnection(connection);
                 return;
             }
 
-            if(selectionKey.isReadable()) {
+            if (selectionKey.isReadable()) {
 
                 try {
-                    client.read();
+                    connection.read();
                 } catch (Exception e) {
                     Logcat.w(TAG, "Lost connection : %s", e.getMessage());
-                    cleanupClient(client);
+                    cleanupConnection(connection);
                     return;
                 }
 
-                client.filledMessages().forEach(msg -> messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(client, msg)));
+                connection.filledMessages().forEach(msg -> {
+                    Logcat.d(TAG, "Message received [%s]", msg.toString());
+
+                    messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(connection, msg));
+                });
             }
 
             if (selectionKey.isWritable()) {
-                BlockingQueue<PostmanMessage> messagesForClient = messageQueueForEachClient.get(client);
+                BlockingQueue<PostmanMessage> messagesForClient = messageQueueForEachClient.get(connection);
 
                 if (messagesForClient.isEmpty()) {
-                    client.unsetWriteInterest();
+                    connection.unsetWriteInterest();
                     return;
                 }
 
@@ -216,21 +217,22 @@ class MessageQueueLoop {
                 if (msg != null) {
 
                     try {
-                        if(client.sendMessage(msg)) {
-                            client.unsetWriteInterest();
+                        Logcat.v(TAG, connection.getConnectionId(), "Sending msg : " + msg.toString());
+                        if (connection.sendMessage(msg)) {
+                            connection.unsetWriteInterest();
                             messagesForClient.remove(msg);
                         }
                     } catch (NonWritableChannelException e) {
                         Log.e(TAG, "Channel not writable", e);
                     } catch (IOException e) {
                         Log.e(TAG, "Problem sending message", e);
-                        cleanupClient(client);
+                        cleanupConnection(connection);
 
                     }
 
                 } else {
                     Logcat.w(TAG, "Selector write ops received but no message in queue");
-                    client.unsetWriteInterest();
+                    connection.unsetWriteInterest();
                 }
 
             }
