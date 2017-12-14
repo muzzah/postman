@@ -18,4 +18,6 @@ public interface PostmanServer {
     void sendMessage(PostmanMessage msg, Connection client);
 
     String getId();
+
+    int numberOfClients();
 }

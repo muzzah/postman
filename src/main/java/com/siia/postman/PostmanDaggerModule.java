@@ -4,7 +4,6 @@ import android.net.nsd.NsdManager;
 
 import com.siia.commons.core.android.AndroidDaggerModule;
 import com.siia.commons.core.rx.SchedulersModule;
-import com.siia.postman.classroom.ClassroomOperations;
 import com.siia.postman.discovery.AndroidNsdDiscoveryService;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
@@ -26,23 +25,18 @@ class PostmanDaggerModule {
 
     @Provides
     @Singleton
-    ClassroomOperations providesClassroom(PostmanServer server, PostmanDiscoveryService discoveryService,
-                                          @Named("computation") Scheduler computation, Provider<PostmanClient> clientProvider) {
-        return new ClassroomOperations(server, discoveryService, clientProvider, computation);
-    }
-
-
-    @Provides
     PostmanServer postmanServer(Provider<PostmanMessage> messageProvider){
         return new NIOPostmanServer(messageProvider);
     }
 
     @Provides
+    @Singleton
     PostmanDiscoveryService postmanDiscoveryService(NsdManager nsdManager){
         return new AndroidNsdDiscoveryService(nsdManager);
     }
 
     @Provides
+    @Singleton
     PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler, Provider<PostmanMessage> messageProvider){
         return new NIOPostmanClient(scheduler, messageProvider);
     }

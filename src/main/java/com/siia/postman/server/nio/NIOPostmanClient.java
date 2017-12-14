@@ -22,6 +22,8 @@ import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
+import static com.siia.commons.core.check.Check.checkState;
+
 public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
 
@@ -34,20 +36,22 @@ public class NIOPostmanClient implements PostmanClient {
     private final CompositeDisposable disposables;
 
 
-    public NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider) {
+    public NIOPostmanClient( Scheduler computation, Provider<PostmanMessage> messageProvider) {
         this.computation = computation;
         this.messageProvider = messageProvider;
         this.disposables = new CompositeDisposable();
+        this.clientEventStream = PublishSubject.create();
+
     }
 
     @Override
     public PublishSubject<PostmanClientEvent> getClientEventStream() {
-        clientEventStream = PublishSubject.create();
         return clientEventStream;
     }
 
     @Override
     public void connect(String host, int port) {
+        checkState(!isConnected(), "Already connected");
         messageRouter = new MessageQueueLoop();
         Observable<PostmanClientEvent> mappedItems = messageRouter.messageRouterEventStream()
                 .observeOn(computation)
@@ -57,12 +61,10 @@ public class NIOPostmanClient implements PostmanClient {
                                 case CLIENT_REGISTERED:
                                     return PostmanClientEvent.clientConnected();
                                 case CLIENT_UNREGISTERED:
-                                    messageRouter.shutdown();
                                     return PostmanClientEvent.clientDisconnected();
                                 case MESSAGE:
                                     return PostmanClientEvent.newMessage(event.client(), event.msg());
                                 case CLIENT_REGISTRATION_FAILED:
-                                    messageRouter.shutdown();
                                     return PostmanClientEvent.clientDisconnected();
                                 default:
                                     return PostmanClientEvent.ignoreEvent();
@@ -73,11 +75,11 @@ public class NIOPostmanClient implements PostmanClient {
                         clientEvent -> {
                             switch (clientEvent.type()) {
                                 case CONNECTED:
-                                    Log.d(TAG, "Postman connection connected");
+                                    Log.d(TAG, "Connected");
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case DISCONNECTED:
-                                    Log.d(TAG, "Postman connection disconnected");
+                                    Log.d(TAG, "Disconnected");
                                     disconnect();
                                     clientEventStream.onNext(clientEvent);
                                     break;
@@ -92,7 +94,7 @@ public class NIOPostmanClient implements PostmanClient {
                                 case IGNORE:
                                     break;
                                 default:
-                                    Logcat.w(TAG, "Unhandled event from messageRouter in postman connection [%s]", clientEvent.type());
+                                    Logcat.w(TAG, "Unhandled event from messageRouter [%s]", clientEvent.type());
                             }
 
 

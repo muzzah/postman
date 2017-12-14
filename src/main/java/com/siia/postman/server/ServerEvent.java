@@ -1,21 +1,15 @@
 package com.siia.postman.server;
 
-import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
 public class ServerEvent {
 
-
-    private static final ByteBuffer EMPTY_BUFFER = ByteBuffer.allocate(0);
-
-
-
     private enum Attribute {
         CLIENT,
         LISTENING_PORT,
         IP_ADDRESS,
-        MESSAGE
+        CLIENT_COUNT, MESSAGE
     }
 
     public enum Type {
@@ -29,15 +23,14 @@ public class ServerEvent {
     private final Type type;
     private final Map<Attribute, Object> attributes;
 
-    private ServerEvent(Type type, ByteBuffer data) {
+    private ServerEvent(Type type) {
         this.type = type;
         this.attributes = new HashMap<>();
     }
 
-    private ServerEvent(Type type) {
-        this(type, EMPTY_BUFFER);
+    public Integer numberOfClients() {
+        return (Integer)attributes.get(Attribute.CLIENT_COUNT);
     }
-
 
     public Type type() {
         return type;
@@ -45,6 +38,11 @@ public class ServerEvent {
 
     public boolean isNewMessage() {
         return Type.NEW_MESSAGE.equals(type);
+    }
+
+
+    public boolean isOf(Type expectedType) {
+        return type.equals(expectedType);
     }
 
     boolean isNewMessageFor(Connection client) {
@@ -85,6 +83,11 @@ public class ServerEvent {
     }
 
 
+    public static ServerEvent newClient(Connection connection, int numberOfClients) {
+        return new ServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection).attribute(Attribute.CLIENT_COUNT, numberOfClients);
+    }
+
+    //TODO remove this and separate out the stream of events
     public static ServerEvent newClient(Connection connection) {
         return new ServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection);
     }

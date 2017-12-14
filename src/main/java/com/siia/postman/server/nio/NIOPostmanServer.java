@@ -13,6 +13,7 @@ import java.net.InetSocketAddress;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentSkipListSet;
 
+import javax.inject.Inject;
 import javax.inject.Provider;
 
 import io.reactivex.disposables.Disposable;
@@ -34,9 +35,10 @@ public class NIOPostmanServer implements PostmanServer {
     private Disposable newMessageDisposable;
     private final Provider<PostmanMessage> messageProvider;
 
+    @Inject
     public NIOPostmanServer(Provider<PostmanMessage> messageProvider) {
         this.messageProvider = messageProvider;
-        this.bindAddress = new InetSocketAddress("0.0.0.0", 8889);
+        this.bindAddress = new InetSocketAddress("0.0.0.0", 8089);
         this.serverEventsStream = PublishSubject.create();
         this.clients = new ConcurrentSkipListSet<>();
         this.id = UUID.randomUUID();
@@ -67,6 +69,11 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
+    public int numberOfClients() {
+        return clients.size();
+    }
+
+    @Override
     public void serverStart() {
         checkState(!isRunning(), "Server is already running");
 
@@ -91,7 +98,7 @@ public class NIOPostmanServer implements PostmanServer {
                                                         switch (state) {
                                                             case AUTHENTICATED:
                                                                 clients.add(event.connection());
-                                                                serverEventsStream.onNext(ServerEvent.newClient(event.connection()));
+                                                                serverEventsStream.onNext(ServerEvent.newClient(handler.getConnection(), clients.size()));
                                                                 break;
                                                             case AUTH_FAILED:
                                                                 Log.w(TAG, "Auth failed");
@@ -124,12 +131,10 @@ public class NIOPostmanServer implements PostmanServer {
 
         newMessageDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(Schedulers.computation())
-                .filter(ServerEvent::isNewMessage)
+                .filter(serverEvent -> serverEvent.isNewMessage() && clients.contains(serverEvent.connection()))
                 .subscribe(
                         event -> {
-                            if (clients.contains(event.connection())) {
-                                serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
-                            }
+                            serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
                         },
                         error -> {
                             //Leave error handling to above subscriber
@@ -146,6 +151,7 @@ public class NIOPostmanServer implements PostmanServer {
         if (serverEventLoop != null) {
             serverEventLoop.shutdownLoop();
         }
+        clients.clear();
     }
 
     @Override
@@ -157,7 +163,7 @@ public class NIOPostmanServer implements PostmanServer {
 
 
     private class UnexpectedServerShutdownException extends Throwable {
-        public UnexpectedServerShutdownException(Throwable error) {
+        UnexpectedServerShutdownException(Throwable error) {
             super(error);
         }
     }

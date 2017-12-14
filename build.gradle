@@ -91,7 +91,6 @@ dependencies {
     implementation "io.reactivex.rxjava2:rxandroid:${project.rxandroidVersion}"
     implementation "com.android.support:support-annotations:${project.supportAnnotationVersion}"
     implementation "com.google.dagger:dagger:$project.daggerVersion"
-    implementation "org.java-websocket:Java-WebSocket:1.3.6"
     implementation 'com.google.protobuf:protobuf-lite:3.0.0'
 
 

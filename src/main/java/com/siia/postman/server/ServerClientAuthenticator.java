@@ -15,6 +15,10 @@ public class ServerClientAuthenticator {
     private final Connection client;
     private Disposable disposable;
 
+    public Connection getConnection() {
+        return client;
+    }
+
     public enum State {
         INPROGRESS,
         AUTHENTICATED,

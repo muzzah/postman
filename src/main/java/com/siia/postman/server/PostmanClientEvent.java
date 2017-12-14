@@ -10,9 +10,7 @@ import java.util.Objects;
 public class PostmanClientEvent {
 
 
-    boolean isNewMessage() {
-        return Type.NEW_MESSAGE.equals(type);
-    }
+
 
     public enum Type {
         CONNECTED,
@@ -50,6 +48,10 @@ public class PostmanClientEvent {
 
     public Connection client() {
         return (Connection) attributes.get(Attribute.CLIENT);
+    }
+
+    public boolean isNewMessage() {
+        return Type.NEW_MESSAGE.equals(type);
     }
 
     public static PostmanClientEvent clientConnected() {
