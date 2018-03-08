@@ -19,9 +19,9 @@ public class PostmanClientEvent {
         IGNORE
     }
 
-    public enum Attribute {
+    private enum Attribute {
         MESSAGE,
-        CLIENT
+        CLIENT_ID
     }
 
     private Map<Attribute, Object> attributes;
@@ -46,9 +46,6 @@ public class PostmanClientEvent {
         return (PostmanMessage) attributes.get(Attribute.MESSAGE);
     }
 
-    public Connection client() {
-        return (Connection) attributes.get(Attribute.CLIENT);
-    }
 
     public boolean isNewMessage() {
         return Type.NEW_MESSAGE.equals(type);
@@ -64,7 +61,7 @@ public class PostmanClientEvent {
 
     public static PostmanClientEvent newMessage(@NonNull Connection client, @NonNull PostmanMessage msg) {
         return new PostmanClientEvent(Type.NEW_MESSAGE).addAttribute(Attribute.MESSAGE, msg)
-                .addAttribute(Attribute.CLIENT, client);
+                .addAttribute(Attribute.CLIENT_ID, client.getConnectionId());
     }
     public static PostmanClientEvent ignoreEvent() {
         return new PostmanClientEvent(Type.IGNORE);

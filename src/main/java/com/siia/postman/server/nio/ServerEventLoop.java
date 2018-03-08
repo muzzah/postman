@@ -203,7 +203,7 @@ class ServerEventLoop {
             IO.closeQuietly(clientSocketChannel);
             return null;
         }
-        return new NIOConnection(UUID.randomUUID(), clientSocketChannel, messageProvider);
+        return new NIOConnection(clientSocketChannel, messageProvider);
 
     }
 

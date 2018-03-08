@@ -1,21 +1,22 @@
 package com.siia.postman.server.nio;
 
-import android.util.Log;
+import android.support.annotation.NonNull;
+import android.support.annotation.WorkerThread;
 
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
-import com.siia.postman.server.ServerClientAuthenticator;
 import com.siia.postman.server.ServerEvent;
 
 import java.net.InetSocketAddress;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
-import javax.inject.Inject;
 import javax.inject.Provider;
 
+import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -29,22 +30,17 @@ public class NIOPostmanServer implements PostmanServer {
     private final InetSocketAddress bindAddress;
     private ServerEventLoop serverEventLoop;
     private PublishSubject<ServerEvent> serverEventsStream;
-    private Disposable eventDisposable;
-    private final ConcurrentSkipListSet<Connection> clients;
-    private final UUID id;
-    private Disposable newMessageDisposable;
+    private final ConcurrentMap<UUID, Connection> clients;
     private final Provider<PostmanMessage> messageProvider;
+    private final CompositeDisposable disposables;
 
-    @Inject
     public NIOPostmanServer(Provider<PostmanMessage> messageProvider) {
         this.messageProvider = messageProvider;
+        this.disposables = new CompositeDisposable();
         this.bindAddress = new InetSocketAddress("0.0.0.0", 8089);
         this.serverEventsStream = PublishSubject.create();
-        this.clients = new ConcurrentSkipListSet<>();
-        this.id = UUID.randomUUID();
-
+        this.clients = new ConcurrentHashMap<>();
     }
-
 
     @Override
     public PublishSubject<ServerEvent> getServerEventsStream() {
@@ -53,24 +49,23 @@ public class NIOPostmanServer implements PostmanServer {
 
     @Override
     public void broadcastMessage(PostmanMessage msg) {
-        clients.parallelStream().forEach(client -> {
-            serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
-        });
+        clients.values().stream().parallel().forEach(client -> serverEventLoop.getMessageQueue().addMessageToQueue(msg, client));
     }
 
     @Override
-    public void sendMessage(PostmanMessage msg, Connection client) {
+    public void sendMessage(@NonNull PostmanMessage msg, @NonNull Connection client) {
         serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
-    }
-
-    @Override
-    public String getId() {
-        return id.toString();
     }
 
     @Override
     public int numberOfClients() {
         return clients.size();
+    }
+
+    @Override
+    @WorkerThread
+    public void disconnectClient(@NonNull UUID uuid) {
+        throw new UnsupportedOperationException("Need to impelment this still");
     }
 
     @Override
@@ -80,36 +75,21 @@ public class NIOPostmanServer implements PostmanServer {
         serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation(), messageProvider);
 
 
-        eventDisposable = serverEventLoop.getServerEventsStream()
+        Disposable eventDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(Schedulers.computation())
                 .filter(serverEvent -> !serverEvent.isNewMessage())
                 .subscribe(
                         event -> {
                             switch (event.type()) {
                                 case CLIENT_JOIN:
-                                    Logcat.i(TAG, "Client connected [%s]", event.connection().getConnectionId());
-                                    ServerClientAuthenticator handler = new ServerClientAuthenticator(this,
-                                            serverEventLoop.getServerEventsStream(),
-                                            event.connection());
-
-                                    handler.beginAuthentication().observeOn(Schedulers.computation())
-                                            .subscribe(
-                                                    state -> {
-                                                        switch (state) {
-                                                            case AUTHENTICATED:
-                                                                clients.add(event.connection());
-                                                                serverEventsStream.onNext(ServerEvent.newClient(handler.getConnection(), clients.size()));
-                                                                break;
-                                                            case AUTH_FAILED:
-                                                                Log.w(TAG, "Auth failed");
-                                                                break;
-                                                        }
-                                                    });
-
+                                    Logcat.d(TAG, "Client connected [%s]", event.connection().getConnectionId());
+                                    clients.put(event.connectionId(), event.connection());
+                                    serverEventsStream.onNext(ServerEvent.newClient(event.connection(), clients.size()));
                                     break;
                                 case CLIENT_DISCONNECT:
-                                    Logcat.i(TAG, "Client disconnected [%s]", event.connection().getConnectionId());
-                                    clients.remove(event.connection());
+                                    Logcat.d(TAG, "Client disconnected [%s]", event.connection().getConnectionId());
+                                    clients.remove(event.connectionId());
+                                    serverEventsStream.onNext(event);
                                     break;
                                 case SERVER_LISTENING:
                                     serverEventsStream.onNext(event);
@@ -121,31 +101,26 @@ public class NIOPostmanServer implements PostmanServer {
 
 
                         },
-                        error -> {
-                            serverEventsStream.onError(new UnexpectedServerShutdownException(error));
-                        },
-                        () -> {
-                            serverEventsStream.onComplete();
-                        });
+                        error -> serverEventsStream.onError(new UnexpectedServerShutdownException(error)),
+                        () -> serverEventsStream.onComplete());
 
 
-        newMessageDisposable = serverEventLoop.getServerEventsStream()
+        Disposable newMessageDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(Schedulers.computation())
-                .filter(serverEvent -> serverEvent.isNewMessage() && clients.contains(serverEvent.connection()))
+                .filter(serverEvent -> serverEvent.isNewMessage() && clients.containsKey(serverEvent.connectionId()))
                 .subscribe(
-                        event -> {
-                            serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
-                        },
-                        error -> {
-                            //Leave error handling to above subscriber
-                        }
+                        event -> serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()))
                 );
+
+        disposables.add(newMessageDisposable);
+        disposables.add(eventDisposable);
 
         serverEventLoop.startLooping();
 
     }
 
     @Override
+    @WorkerThread
     public void stopServer() {
         checkState(isRunning(), "Server is not running");
         if (serverEventLoop != null) {

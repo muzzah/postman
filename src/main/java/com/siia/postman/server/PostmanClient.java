@@ -1,8 +1,6 @@
 package com.siia.postman.server;
 
 
-import java.util.UUID;
-
 import io.reactivex.subjects.PublishSubject;
 
 public interface PostmanClient {
@@ -17,5 +15,4 @@ public interface PostmanClient {
 
     boolean isConnected();
 
-    UUID getClientId();
 }

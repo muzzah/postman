@@ -2,6 +2,7 @@ package com.siia.postman.server;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class ServerEvent {
 
@@ -40,17 +41,12 @@ public class ServerEvent {
         return Type.NEW_MESSAGE.equals(type);
     }
 
-
-    public boolean isOf(Type expectedType) {
-        return type.equals(expectedType);
-    }
-
-    boolean isNewMessageFor(Connection client) {
-        return Type.NEW_MESSAGE.equals(type) && connection().equals(client);
-    }
-
     public Connection connection() {
         return (Connection) attributes.get(Attribute.CLIENT);
+    }
+
+    public UUID connectionId() {
+        return connection().getConnectionId();
     }
 
     public PostmanMessage message() {
@@ -71,11 +67,6 @@ public class ServerEvent {
         attributes.put(attribute, value);
         return this;
     }
-
-    static ServerEvent clientDisconnected(int clientId) {
-        return new ServerEvent(Type.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, clientId);
-    }
-
 
     public static ServerEvent serverListening(int port, String hostAddress) {
         return new ServerEvent(Type.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT, port)

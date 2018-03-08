@@ -1,12 +1,19 @@
 package com.siia.postman.server;
 
+import android.support.annotation.NonNull;
+import android.support.annotation.WorkerThread;
+
+import java.util.UUID;
+
 import io.reactivex.subjects.PublishSubject;
 
 
 public interface PostmanServer {
 
+
     void serverStart();
 
+    @WorkerThread
     void stopServer();
 
     boolean isRunning();
@@ -15,9 +22,10 @@ public interface PostmanServer {
 
     void broadcastMessage(PostmanMessage msg);
 
-    void sendMessage(PostmanMessage msg, Connection client);
-
-    String getId();
+    void sendMessage(@NonNull  PostmanMessage msg, @NonNull Connection client);
 
     int numberOfClients();
+
+    @WorkerThread
+    void disconnectClient(@NonNull UUID uuid);
 }

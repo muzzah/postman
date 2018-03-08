@@ -99,15 +99,14 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
                 .subscribe(
                         () -> {
                         },
-                        error -> {
-                            discoverEventsStream.onError(error);
-                        }
+                        error -> discoverEventsStream.onError(error)
                 );
 
     }
 
     @Override
     public void stopDiscovery() {
+        Logcat.i(TAG, "Stopping Siia Service Discovery");
         try {
             nsdManager.stopServiceDiscovery(listener);
         } catch (Exception error){

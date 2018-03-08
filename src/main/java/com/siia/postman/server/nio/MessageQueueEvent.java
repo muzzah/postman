@@ -10,10 +10,6 @@ import java.util.Map;
 class MessageQueueEvent {
 
 
-    public static MessageQueueEvent ready() {
-        return new MessageQueueEvent(null, Type.READY);
-    }
-
     enum Type {
         CLIENT_REGISTERED,
         CLIENT_REGISTRATION_FAILED,
@@ -38,7 +34,7 @@ class MessageQueueEvent {
 
     NIOConnection client() {return client; }
 
-    MessageQueueEvent addAttribute(Type key, @NonNull PostmanMessage msg) {
+    private MessageQueueEvent addAttribute(Type key, @NonNull PostmanMessage msg) {
         attributes.put(key, msg);
         return this;
     }
@@ -61,6 +57,12 @@ class MessageQueueEvent {
 
     static MessageQueueEvent messageReceived(@NonNull NIOConnection client, @NonNull PostmanMessage msg) {
         return new MessageQueueEvent(client, Type.MESSAGE).addAttribute(Type.MESSAGE, msg);
+    }
+
+
+
+    static MessageQueueEvent ready() {
+        return new MessageQueueEvent(null, Type.READY);
     }
 
     @Override

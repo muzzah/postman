@@ -188,6 +188,7 @@ class MessageQueueLoop {
                 return;
             }
 
+            //TODO these read/writes should really happen in separate threads
             if (selectionKey.isReadable()) {
 
                 try {

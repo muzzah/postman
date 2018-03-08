@@ -37,7 +37,10 @@ class PostmanDaggerModule {
 
     @Provides
     @Singleton
-    PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler, Provider<PostmanMessage> messageProvider){
-        return new NIOPostmanClient(scheduler, messageProvider);
+    PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler,
+                                        @Named("io") Scheduler ioScheduler,
+                                        Provider<PostmanMessage> messageProvider){
+        return new NIOPostmanClient(scheduler, messageProvider, ioScheduler);
     }
 }
+

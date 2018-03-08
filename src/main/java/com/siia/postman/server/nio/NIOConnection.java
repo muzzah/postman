@@ -31,8 +31,8 @@ class NIOConnection implements Connection {
     private SelectionKey selectionKey;
     private Queue<PostmanMessage> readMessages;
 
-    NIOConnection(UUID connectionId, SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider) {
-        this(connectionId,clientSocketChannel,messageProvider,  ByteBuffer.allocate(BUFFER_SIZE), new ConcurrentLinkedQueue<>());
+    NIOConnection(SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider) {
+        this(UUID.randomUUID(),clientSocketChannel,messageProvider,  ByteBuffer.allocate(BUFFER_SIZE), new ConcurrentLinkedQueue<>());
     }
 
 
