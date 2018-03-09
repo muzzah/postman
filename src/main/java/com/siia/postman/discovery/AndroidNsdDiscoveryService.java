@@ -155,7 +155,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         @Override
         public void onServiceFound(NsdServiceInfo serviceInfo) {
             Logcat.i(TAG, "Siia Service Found");
-            nsdManager.resolveService(serviceInfo, new ServiceResolutionHandler(eventStream, nsdManager, this));
+            nsdManager.resolveService(serviceInfo, new ServiceResolutionHandler(eventStream));
         }
 
         @Override
@@ -172,13 +172,9 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
 
 
         private final PublishSubject<PostmanDiscoveryEvent> eventStream;
-        private final NsdManager nsdManager;
-        private final ServiceDiscoveryListener serviceDiscoveryListener;
 
-        ServiceResolutionHandler(PublishSubject<PostmanDiscoveryEvent> eventStream, NsdManager nsdManager, ServiceDiscoveryListener serviceDiscoveryListener) {
+        ServiceResolutionHandler(PublishSubject<PostmanDiscoveryEvent> eventStream) {
             this.eventStream = eventStream;
-            this.nsdManager = nsdManager;
-            this.serviceDiscoveryListener = serviceDiscoveryListener;
         }
 
         @Override
@@ -211,7 +207,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
 
         @Override
         public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
-            Logcat.e(TAG, "Siia Service unregistration failed (%d)", errorCode);
+            Logcat.e(TAG, "Siia Service deregistration failed (%d)", errorCode);
             broadcastActive.getAndSet(false);
         }
 

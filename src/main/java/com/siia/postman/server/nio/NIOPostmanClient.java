@@ -3,6 +3,7 @@ package com.siia.postman.server.nio;
 
 import android.util.Log;
 
+import com.google.protobuf.MessageLite;
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.PostmanClient;
@@ -138,6 +139,11 @@ public class NIOPostmanClient implements PostmanClient {
     @Override
     public void sendMessage(PostmanMessage msg) {
         messageRouter.addMessageToQueue(msg, client);
+    }
+
+    @Override
+    public void sendMessage(MessageLite msg) {
+        messageRouter.addMessageToQueue(new PostmanMessage(msg), client);
     }
 
     @Override

@@ -3,6 +3,7 @@ package com.siia.postman.server.nio;
 import android.support.annotation.NonNull;
 import android.support.annotation.WorkerThread;
 
+import com.google.protobuf.MessageLite;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
@@ -55,6 +56,11 @@ public class NIOPostmanServer implements PostmanServer {
     @Override
     public void sendMessage(@NonNull PostmanMessage msg, @NonNull Connection client) {
         serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
+    }
+
+    @Override
+    public void sendMessage(@NonNull MessageLite msg, @NonNull Connection client) {
+        serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), client);
     }
 
     @Override

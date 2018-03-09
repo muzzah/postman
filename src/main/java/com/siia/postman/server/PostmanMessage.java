@@ -5,6 +5,7 @@ import android.util.Log;
 import com.google.protobuf.AbstractMessageLite;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.MessageLite;
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 
@@ -43,7 +44,7 @@ public class PostmanMessage {
         hasFilledFrame = new AtomicBoolean(false);
     }
 
-    public PostmanMessage(AbstractMessageLite msg) {
+    public PostmanMessage(MessageLite msg) {
         checkState(msg.isInitialized(), "Cannot initialise postman message with invalid proto object");
         MessageOuterClass.Message innerFrameMsg = MessageOuterClass.Message.newBuilder()
                 .setType(msg.getClass().getName())

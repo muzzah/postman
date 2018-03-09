@@ -69,20 +69,20 @@ class MessageQueueLoop {
         return readWriteSelector != null && readWriteSelector.isOpen();
     }
 
-    void addMessageToQueue(PostmanMessage msg, Connection destination) {
+    boolean addMessageToQueue(PostmanMessage msg, Connection destination) {
 
         NIOConnection NIOConnection = (NIOConnection) destination;
 
         if (!NIOConnection.isValid()) {
             Logcat.w(TAG, "Not adding message [%s] to queue with invalid connection [%s]", msg.toString(), destination.toString());
-            return;
+            return false;
         }
 
         BlockingQueue<PostmanMessage> queueForClient = messageQueueForEachClient.get(NIOConnection);
 
         if (!queueForClient.offer(msg)) {
             Logcat.e(TAG, "Could not add message [%s] to queue, dropping", msg.toString());
-            return;
+            return false;
         }
 
         try {
@@ -90,8 +90,10 @@ class MessageQueueLoop {
         } catch (ClosedChannelException e) {
             Logcat.e(TAG, "Could not set write interest for connection selector", e);
             cleanupConnection(NIOConnection);
+            return false;
         }
         readWriteSelector.wakeup();
+        return true;
 
 
     }
@@ -178,7 +180,7 @@ class MessageQueueLoop {
         v(TAG, "%s keys selected", selectedKeys.size());
 
         selectedKeys.forEach(selectionKey -> {
-            v(TAG, "SK : v=%s w=%s c=%s r=%s", selectionKey.isValid(),
+            v(TAG, "SK : valid=%s writable=%s connectable=%s readbale=%s", selectionKey.isValid(),
                     selectionKey.isWritable(), selectionKey.isConnectable(), selectionKey.isReadable());
 
             NIOConnection connection = connectedClientsBySelectionKey.get(selectionKey);
@@ -200,7 +202,7 @@ class MessageQueueLoop {
                 }
 
                 connection.filledMessages().forEach(msg -> {
-                    Logcat.d(TAG, "Message received [%s]", msg.toString());
+                    Logcat.v(TAG, "Message received [%s]", msg.toString());
 
                     messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(connection, msg));
                 });
