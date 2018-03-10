@@ -14,7 +14,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.UUID;
 
 import javax.inject.Provider;
 
@@ -53,10 +52,8 @@ class ServerEventLoop {
 
         disposables.clear();
         IO.closeQuietly(clientJoinSelector);
-
         IO.closeQuietly(serverSocketChannel.socket());
         IO.closeQuietly(serverSocketChannel);
-
         messageRouter.shutdown();
 
     }
@@ -76,27 +73,7 @@ class ServerEventLoop {
         disposables.add(messageRouter.messageRouterEventStream()
                 .observeOn(computation)
                 .subscribe(
-                        event -> {
-                            switch (event.type()) {
-                                case CLIENT_REGISTERED:
-                                    serverEventStream.onNext(ServerEvent.newClient(event.client()));
-                                    break;
-                                case CLIENT_REGISTRATION_FAILED:
-                                    Log.w(TAG, "Problem when registering connection");
-                                    break;
-                                case CLIENT_UNREGISTERED:
-                                    serverEventStream.onNext(ServerEvent.clientDisconnected(event.client()));
-                                    break;
-                                case MESSAGE:
-                                    serverEventStream.onNext(ServerEvent.newMessage(event.msg(), event.client()));
-                                    break;
-                                case READY:
-                                    break;
-                                default:
-                                    throw new UnsupportedOperationException("Unhandled event type from server message router");
-                            }
-
-                        },
+                        this::handleMessageQueueEvent,
                         error -> {
                             shutdownLoop();
                             serverEventStream.onError(error);
@@ -111,42 +88,66 @@ class ServerEventLoop {
         disposables.add(messageRouter.messageRouterEventStream().observeOn(Schedulers.io())
                 .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
                 .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
-                .subscribe(
-                        messageQueueEvent -> {
-                            if(!initialiseServerSocket()) {
-                              return;
-                            }
-
-                            try {
-                                serverEventStream.onNext(ServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
-
-                                while (true) {
-                                    v(TAG, "Waiting for incoming connections");
-                                    int channelsReady = clientJoinSelector.select();
-
-                                    if (!clientJoinSelector.isOpen()) {
-                                        break;
-                                    }
-
-                                    if (clientJoinSelector.selectedKeys().isEmpty()) {
-                                        Log.w(TAG, "Selected keys are empty");
-                                        continue;
-                                    }
-
-                                    v(TAG, "%s channel(s) ready in accept loop", channelsReady);
-
-                                    processKeyUpdates();
-
-                                }
-                                shutdownLoop();
-                                serverEventStream.onComplete();
-                            } catch (Exception e) {
-                                shutdownLoop();
-                                serverEventStream.onError(e);
-                            }
-                        }));
+                .subscribe(this::handleMessageQueueReady));
 
 
+    }
+
+
+    private void handleMessageQueueEvent(MessageQueueEvent messageQueueEvent){
+        switch (messageQueueEvent.type()) {
+            case CLIENT_REGISTERED:
+                serverEventStream.onNext(ServerEvent.newClient(messageQueueEvent.client()));
+                break;
+            case CLIENT_REGISTRATION_FAILED:
+                Log.w(TAG, "Problem when registering connection");
+                break;
+            case CLIENT_UNREGISTERED:
+                serverEventStream.onNext(ServerEvent.clientDisconnected(messageQueueEvent.client()));
+                break;
+            case MESSAGE:
+                serverEventStream.onNext(ServerEvent.newMessage(messageQueueEvent.msg(), messageQueueEvent.client()));
+                break;
+            case READY:
+                break;
+            default:
+                throw new UnsupportedOperationException("Unhandled event type from server message router");
+        }
+
+    }
+
+    private void handleMessageQueueReady(@SuppressWarnings("unused") MessageQueueEvent messageQueueEvent) {
+        if (!initialiseServerSocket()) {
+            return;
+        }
+
+        try {
+            serverEventStream.onNext(ServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
+
+            while (true) {
+                v(TAG, "Waiting for incoming connections");
+                int channelsReady = clientJoinSelector.select();
+
+                if (!clientJoinSelector.isOpen()) {
+                    break;
+                }
+
+                if (clientJoinSelector.selectedKeys().isEmpty()) {
+                    Log.w(TAG, "Selected keys are empty");
+                    continue;
+                }
+
+                v(TAG, "%s channel(s) ready in accept loop", channelsReady);
+
+                processKeyUpdates();
+
+            }
+            shutdownLoop();
+            serverEventStream.onComplete();
+        } catch (Exception e) {
+            shutdownLoop();
+            serverEventStream.onError(e);
+        }
     }
 
     private void processKeyUpdates() {

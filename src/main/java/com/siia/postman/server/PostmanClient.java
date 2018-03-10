@@ -3,8 +3,11 @@ package com.siia.postman.server;
 
 import com.google.protobuf.MessageLite;
 
+import javax.inject.Singleton;
+
 import io.reactivex.subjects.PublishSubject;
 
+@Singleton
 public interface PostmanClient {
 
     PublishSubject<PostmanClientEvent> getClientEventStream();

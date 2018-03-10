@@ -8,9 +8,12 @@ import com.google.protobuf.MessageLite;
 
 import java.util.UUID;
 
+import javax.inject.Singleton;
+
 import io.reactivex.subjects.PublishSubject;
 
 
+@Singleton
 public interface PostmanServer {
 
 
