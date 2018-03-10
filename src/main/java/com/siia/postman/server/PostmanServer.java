@@ -31,6 +31,8 @@ public interface PostmanServer {
 
     @AnyThread
     void broadcastMessage(PostmanMessage msg);
+    @AnyThread
+    void broadcastMessage(MessageLite msg);
 
     @AnyThread
     void sendMessage(@NonNull  PostmanMessage msg, @NonNull Connection client);

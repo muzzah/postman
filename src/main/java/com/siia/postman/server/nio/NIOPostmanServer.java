@@ -54,6 +54,11 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
+    public void broadcastMessage(MessageLite msg) {
+        broadcastMessage(new PostmanMessage(msg));
+    }
+
+    @Override
     public void sendMessage(@NonNull PostmanMessage msg, @NonNull Connection client) {
         serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
     }
