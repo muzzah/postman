@@ -125,7 +125,7 @@ class ServerEventLoop {
             serverEventStream.onNext(ServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
 
             while (true) {
-                v(TAG, "Waiting for incoming connections");
+                v(TAG, "Waiting for selector updates");
                 int channelsReady = clientJoinSelector.select();
 
                 if (!clientJoinSelector.isOpen()) {
