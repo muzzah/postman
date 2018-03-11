@@ -91,6 +91,7 @@ public class NIOPostmanServer implements PostmanServer {
                 .filter(serverEvent -> !serverEvent.isNewMessage())
                 .subscribe(
                         event -> {
+                            Logcat.v(TAG, "Server event received %s", event.type());
                             switch (event.type()) {
                                 case CLIENT_JOIN:
                                     Logcat.d(TAG, "Client connected [%s]", event.connection().getConnectionId());
