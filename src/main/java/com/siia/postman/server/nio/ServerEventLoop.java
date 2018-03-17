@@ -10,6 +10,7 @@ import com.siia.postman.server.ServerEvent;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.SocketException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -88,9 +89,15 @@ class ServerEventLoop {
         disposables.add(messageRouter.messageRouterEventStream().observeOn(Schedulers.io())
                 .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
                 .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
-                .subscribe(this::handleMessageQueueReady));
+                .subscribe(
+                        this::startListeningForClients,
+                        this::handleMessageQueueError));
 
 
+    }
+
+    private void handleMessageQueueError(Throwable throwable) {
+        Logcat.e(TAG, "Error in Message", throwable);
     }
 
 
@@ -116,8 +123,9 @@ class ServerEventLoop {
 
     }
 
-    private void handleMessageQueueReady(@SuppressWarnings("unused") MessageQueueEvent messageQueueEvent) {
+    private void startListeningForClients(@SuppressWarnings("unused") MessageQueueEvent messageQueueEvent) {
         if (!initialiseServerSocket()) {
+            serverEventStream.onError(new SocketException("Could not initialise server socket"));
             return;
         }
 
@@ -145,7 +153,6 @@ class ServerEventLoop {
             shutdownLoop();
             serverEventStream.onComplete();
         } catch (Exception e) {
-            shutdownLoop();
             serverEventStream.onError(e);
         }
     }

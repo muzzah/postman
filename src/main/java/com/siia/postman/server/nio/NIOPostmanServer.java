@@ -134,7 +134,12 @@ public class NIOPostmanServer implements PostmanServer {
     @Override
     @WorkerThread
     public void stopServer() {
-        checkState(isRunning(), "Server is not running");
+        if(!isRunning()) {
+            Logcat.w(TAG, "Server is not running");
+            return;
+        }
+        disposables.clear();
+
         if (serverEventLoop != null) {
             serverEventLoop.shutdownLoop();
         }
