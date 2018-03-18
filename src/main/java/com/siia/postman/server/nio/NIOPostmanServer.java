@@ -113,6 +113,9 @@ public class NIOPostmanServer implements PostmanServer {
 
 
                         },
+                        //TODO Separate out the internal server error streams from event streams so that we can distinguish and handle them seprately
+                        //i.e clients who susbscribe to the outgoing event stream can handle errors. Right now they can because we send internal server errors
+                        //Down stream
                         error -> serverEventsStream.onError(new UnexpectedServerShutdownException(error)),
                         () -> serverEventsStream.onComplete());
 
