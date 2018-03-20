@@ -80,7 +80,9 @@ public class PostmanMessage {
     @SuppressWarnings("unchecked")
     public <T extends AbstractMessageLite> T getProtoObj() throws InvalidProtocolBufferException,
             IllegalAccessException, InvocationTargetException, ClassNotFoundException, NoSuchMethodException{
-        MessageOuterClass.Message innerFrameMsg = MessageOuterClass.Message.parseFrom(getBody().array());
+        ByteBuffer body = getBody();
+        byte[] data = body.array();
+        MessageOuterClass.Message innerFrameMsg = MessageOuterClass.Message.parseFrom(data);
             return (T)Class.forName(innerFrameMsg.getType())
                     .getMethod("parseFrom", byte[].class)
                     .invoke(null, (Object) innerFrameMsg.getData().toByteArray());
@@ -90,7 +92,9 @@ public class PostmanMessage {
     @SuppressWarnings("unchecked")
     public boolean isOfType(Class<? extends AbstractMessageLite> type) throws InvalidProtocolBufferException,
             IllegalAccessException, InvocationTargetException, ClassNotFoundException, NoSuchMethodException{
-        MessageOuterClass.Message innerFrameMsg = MessageOuterClass.Message.parseFrom(getBody().array());
+        ByteBuffer body = getBody();
+        byte[] bodyBuffer = body.array();
+        MessageOuterClass.Message innerFrameMsg = MessageOuterClass.Message.parseFrom(bodyBuffer);
 
         return innerFrameMsg.getType().equalsIgnoreCase(type.getName());
     }
