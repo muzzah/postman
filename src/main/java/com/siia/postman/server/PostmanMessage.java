@@ -62,6 +62,7 @@ public class PostmanMessage {
         frame.putInt(body.limit());
         frame.put(body);
         frame.flip();
+        body.rewind()
         return frame;
 
     }
@@ -72,6 +73,7 @@ public class PostmanMessage {
         ByteBuffer copy = ByteBuffer.allocate(body.limit());
         copy.put(body);
         copy.flip();
+        body.rewind();
         return copy;
 
     }
