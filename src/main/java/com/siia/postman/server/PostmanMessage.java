@@ -62,7 +62,7 @@ public class PostmanMessage {
         frame.putInt(body.limit());
         frame.put(body);
         frame.flip();
-        body.rewind()
+        body.rewind();
         return frame;
 
     }
