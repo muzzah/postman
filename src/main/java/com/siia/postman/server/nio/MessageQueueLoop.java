@@ -126,7 +126,7 @@ class MessageQueueLoop {
      */
 
     void startMessageQueueLoop() {
-        checkState(!isRunning(), "Message Queue alrady running");
+        checkState(!isRunning(), "Message Queue already running");
 
         Completable.create(completableEmitter -> {
 

@@ -10,6 +10,7 @@ import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanClientEvent;
 import com.siia.postman.server.PostmanMessage;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
 
@@ -115,7 +116,7 @@ public class NIOPostmanClient implements PostmanClient {
                                 socketChannel = SocketChannel.open();
                                 socketChannel.connect(serverAddress);
                                 socketChannel.configureBlocking(false);
-                            } catch (Exception e) {
+                            } catch (Throwable e) {
                                 IO.closeQuietly(socketChannel);
                                 clientEventStream.onError(e);
                                 //Important to do this last, otherwise disposable are cleared and
@@ -126,9 +127,7 @@ public class NIOPostmanClient implements PostmanClient {
                             client = new NIOConnection(socketChannel, messageProvider);
                             messageRouter.addClient(client);
                         },
-                        error -> {
-                            //Leave error handling to above subscriber
-                        });
+                        error -> Logcat.e(TAG, "[IGNORE] Error when connecting to server", error));
 
         disposables.add(socketConnectionDisposable);
 
