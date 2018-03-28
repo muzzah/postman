@@ -54,7 +54,7 @@ public class PostmanMessage {
         hasFilledFrame = new AtomicBoolean(true);
     }
 
-    private ByteBuffer getFrame() {
+    private synchronized ByteBuffer getFrame() {
         checkState(hasFilledFrame.get(), "Frame not filled");
         body.rewind();
 
@@ -67,7 +67,7 @@ public class PostmanMessage {
 
     }
 
-    private ByteBuffer getBody() {
+    private synchronized ByteBuffer getBody() {
         checkState(hasFilledFrame.get(), "Frame not filled");
         body.rewind();
         ByteBuffer copy = ByteBuffer.allocate(body.limit());
