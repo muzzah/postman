@@ -1,11 +1,6 @@
 apply plugin: 'com.android.library'
 apply plugin: 'com.google.protobuf'
 
-configurations.all {
-    resolutionStrategy {
-        force 'io.reactivex:rxjava:1.0.12'
-    }
-}
 android {
 
     compileSdkVersion project.compileSdkVersion
@@ -28,6 +23,7 @@ android {
             minifyEnabled false
             debuggable false
         }
+
         debug {
             minifyEnabled false
             debuggable true
