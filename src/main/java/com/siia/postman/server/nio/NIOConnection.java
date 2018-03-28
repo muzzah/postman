@@ -113,14 +113,6 @@ class NIOConnection implements Connection {
     boolean sendMessage(PostmanMessage msg) throws IOException {
         ByteBuffer out = msg.frame();
         int numWritten = 0;
-        StringBuffer str = new StringBuffer(out.limit());
-        str.append("[");
-        for(byte byteData : out.array()) {
-            str.append(byteData).append(" ");
-        }
-        str.append("]");
-
-        Logcat.d(TAG, "Writing %s", str.toString());
 
         while (selectionKey.isWritable() && out.hasRemaining() && selectionKey.isValid() && clientSocketChannel.isOpen()) {
             int outBytes = clientSocketChannel.write(out);
