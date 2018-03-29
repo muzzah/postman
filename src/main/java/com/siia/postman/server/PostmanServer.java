@@ -45,4 +45,7 @@ public interface PostmanServer {
 
     @WorkerThread
     void disconnectClient(@NonNull UUID uuid);
+
+    @AnyThread
+    void sendMessage(MessageLite msg, UUID uuid);
 }

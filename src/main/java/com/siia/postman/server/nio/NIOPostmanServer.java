@@ -80,6 +80,16 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
+    public void sendMessage(MessageLite msg, UUID uuid) {
+        Connection connection = clients.get(uuid);
+        if(connection == null) {
+            Logcat.w(TAG, "Client %s does not seem to be connected, not sending message", uuid.toString());
+            return;
+        }
+        serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), connection);
+    }
+
+    @Override
     public void serverStart() {
         checkState(!isRunning(), "Server is already running");
 
