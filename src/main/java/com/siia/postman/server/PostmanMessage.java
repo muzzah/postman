@@ -54,6 +54,9 @@ public class PostmanMessage {
         hasFilledFrame = new AtomicBoolean(true);
     }
 
+    //TODO these methods while private are called from other methods which can be called from different threads
+    //This causes the invalid tag exception we see sometimes
+    // We need a better way to prevent these
     private synchronized ByteBuffer getFrame() {
         checkState(hasFilledFrame.get(), "Frame not filled");
         body.rewind();
@@ -104,7 +107,8 @@ public class PostmanMessage {
         String innerMessage = "";
         if(isFull()) {
             try {
-                innerMessage = getProtoObj().toString();
+                AbstractMessageLite protoObj = getProtoObj();
+                innerMessage = protoObj.getClass().getSimpleName();
             } catch (Exception e) {
                 innerMessage = e.getMessage();
             }
