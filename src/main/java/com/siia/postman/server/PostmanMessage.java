@@ -54,6 +54,13 @@ public class PostmanMessage {
         hasFilledFrame = new AtomicBoolean(true);
     }
 
+    public PostmanMessage(PostmanMessage msg) {
+        this.body = msg.getBody();
+        this.frame = msg.getFrame();
+        hasFilledFrame = new AtomicBoolean(true);
+
+    }
+
     //TODO these methods while private are called from other methods which can be called from different threads
     //This causes the invalid tag exception we see sometimes
     // We need a better way to prevent these
@@ -177,5 +184,6 @@ public class PostmanMessage {
 
         return frame;
     }
+
 }
 

@@ -50,7 +50,7 @@ public class NIOPostmanServer implements PostmanServer {
 
     @Override
     public void broadcastMessage(PostmanMessage msg) {
-        clients.values().stream().parallel().forEach(client -> serverEventLoop.getMessageQueue().addMessageToQueue(msg, client));
+        clients.values().stream().parallel().forEach(client -> serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), client));
     }
 
     @Override
