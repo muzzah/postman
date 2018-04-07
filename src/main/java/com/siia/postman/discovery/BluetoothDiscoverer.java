@@ -95,8 +95,12 @@ public class BluetoothDiscoverer {
 
     public void stopDiscovery() {
         androidUtils.unregisterReceiverQuietly(receiver);
-        bluetoothEnabledLatch.countDown();
-        deviceFoundLatch.countDown();
+        if(bluetoothEnabledLatch != null) {
+            bluetoothEnabledLatch.countDown();
+        }
+        if(deviceFoundLatch != null) {
+            deviceFoundLatch.countDown();
+        }
         bluetoothAdapter.getBluetoothLeScanner().stopScan(leScanCallback);
         if (bluetoothAdapter.isEnabled()) {
             Logcat.result_v(TAG, "Disabling Adapter", bluetoothAdapter.disable());
