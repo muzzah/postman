@@ -1,9 +1,13 @@
 package com.siia.postman.discovery;
 
 
+import android.support.annotation.NonNull;
+
 import java.net.InetAddress;
 
 public class PostmanDiscoveryEvent {
+
+
 
     public enum Type {
         FOUND,
@@ -15,10 +19,19 @@ public class PostmanDiscoveryEvent {
     private int port;
     private final Type type;
 
+    private String apName;
+    private String passwd;
+
     private PostmanDiscoveryEvent(InetAddress address, int port, Type type) {
         this.address = address;
         this.port = port;
         this.type = type;
+    }
+
+    private PostmanDiscoveryEvent(String apName, String passwd) {
+        this.apName = apName;
+        this.passwd = passwd;
+        this.type = Type.FOUND;
     }
 
     private PostmanDiscoveryEvent(Type type) {
@@ -45,7 +58,7 @@ public class PostmanDiscoveryEvent {
         return type;
     }
 
-    public static PostmanDiscoveryEvent found(InetAddress address, int port) {
+    public static PostmanDiscoveryEvent found(@NonNull InetAddress address, int port) {
         return new PostmanDiscoveryEvent(address, port, Type.FOUND);
     }
 
@@ -55,5 +68,17 @@ public class PostmanDiscoveryEvent {
 
     static PostmanDiscoveryEvent started() {
         return new PostmanDiscoveryEvent(Type.STARTED);
+    }
+
+    static PostmanDiscoveryEvent foundAP(@NonNull String apName, @NonNull String sharedKey) {
+        return new PostmanDiscoveryEvent(apName, sharedKey);
+    }
+
+    public String getApName() {
+        return apName;
+    }
+
+    public String getPasswd() {
+        return passwd;
     }
 }

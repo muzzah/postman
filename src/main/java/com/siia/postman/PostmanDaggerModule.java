@@ -1,10 +1,14 @@
 package com.siia.postman;
 
+import android.content.Context;
 import android.net.nsd.NsdManager;
 
 import com.siia.commons.core.android.AndroidDaggerModule;
 import com.siia.commons.core.rx.SchedulersModule;
 import com.siia.postman.discovery.AndroidNsdDiscoveryService;
+import com.siia.postman.discovery.BluetoothBroadcaster;
+import com.siia.postman.discovery.BluetoothDiscoverer;
+import com.siia.postman.discovery.BluetoothPostmanDiscoveryService;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanMessage;
@@ -31,8 +35,16 @@ class PostmanDaggerModule {
 
     @Provides
     @Singleton
-    PostmanDiscoveryService postmanDiscoveryService(NsdManager nsdManager){
-        return new AndroidNsdDiscoveryService(nsdManager);
+    @Named("nsd")
+    PostmanDiscoveryService nsdDiscoveryService(NsdManager nsdManager){
+            return new AndroidNsdDiscoveryService(nsdManager);
+    }
+
+    @Provides
+    @Named("bt")
+    PostmanDiscoveryService btDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster, BluetoothDiscoverer bluetoothDiscoverer,
+                                               @Named("computation") Scheduler computation, Context ctx){
+        return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, computation, ctx);
     }
 
     @Provides

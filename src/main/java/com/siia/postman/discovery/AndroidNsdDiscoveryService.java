@@ -2,6 +2,7 @@ package com.siia.postman.discovery;
 
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
+import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.siia.commons.core.log.Logcat;
@@ -17,7 +18,6 @@ import io.reactivex.subjects.PublishSubject;
 import static com.siia.commons.core.check.Check.checkState;
 
 public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
-    private static final String SERVICE_TYPE = "_siia._tcp.";
     private static final String TAG = Logcat.getTag();
 
     private final NsdManager nsdManager;
@@ -33,17 +33,17 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         this.broadcastActive = new AtomicBoolean(false);
     }
 
+    //TODO what if broadcasting fails?
     @Override
-    public void startServiceBroadcast(int port, String hostAddress) {
+    public void startServiceBroadcast(@NonNull String serviceName, int port, @NonNull String hostAddress) {
         checkState(!isBroadcasting(), "Already broadcasting service");
         if (broadcastActive.compareAndSet(false, true)) {
             NsdServiceInfo postmanServiceInfo = new NsdServiceInfo();
 
             // The name is subject to change based on conflicts
             // with other services advertised on the same network.
-            postmanServiceInfo.setServiceName("Siia_T_TEACHERID");
+            postmanServiceInfo.setServiceName(serviceName);
             postmanServiceInfo.setServiceType(SERVICE_TYPE);
-            postmanServiceInfo.setAttribute("tname", "Sanne De Vries");
             try {
                 postmanServiceInfo.setHost(Inet4Address.getByName(hostAddress));
             } catch (UnknownHostException e) {
@@ -75,7 +75,6 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         return discoverEventsStream;
     }
 
-
     @Override
     public boolean isBroadcasting() {
         return broadcastActive.get();
@@ -83,15 +82,13 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
 
 
     @Override
-    public void discoverService() {
-        Completable.fromPublisher(
-                emitter -> {
+    public void discoverService(@NonNull String serviceName) {
+        Completable.fromAction(
+                () -> {
                     listener = new ServiceDiscoveryListener(nsdManager, discoverEventsStream);
+                    //TODO stop discovery once we find the host, reactive once we need to
                     nsdManager.discoverServices(
                             SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener);
-
-                    emitter.onComplete();
-
 
                 })
                 .subscribeOn(Schedulers.io())

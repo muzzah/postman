@@ -1,6 +1,8 @@
 package com.siia.postman.discovery;
 
 
+import android.support.annotation.NonNull;
+
 import javax.inject.Singleton;
 
 import io.reactivex.subjects.PublishSubject;
@@ -8,13 +10,16 @@ import io.reactivex.subjects.PublishSubject;
 @Singleton
 public interface PostmanDiscoveryService {
 
-    void startServiceBroadcast(int post, String hostAddress);
+    String SERVICE_TYPE = "_siia._tcp.";
+
+    void startServiceBroadcast(@NonNull String serviceName, int post, @NonNull String hostAddress);
     void stopServiceBroadcast();
 
     boolean isBroadcasting();
 
     PublishSubject<PostmanDiscoveryEvent> getDiscoveryEventStream();
-    void discoverService();
+
+    void discoverService(@NonNull String serviceName);
 
     void stopDiscovery();
 }

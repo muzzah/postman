@@ -4,6 +4,7 @@ import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanServer;
 
+import javax.inject.Named;
 import javax.inject.Singleton;
 
 import dagger.Component;
@@ -13,6 +14,9 @@ import dagger.Component;
 public interface PostmanDaggerComponent {
 
     PostmanServer postmanServer();
-    PostmanDiscoveryService postmanDiscoveryService();
     PostmanClient postmanClientProvider();
+    @Named("nsd")
+    PostmanDiscoveryService nsdDiscoveryService();
+    @Named("bt")
+    PostmanDiscoveryService btDiscoveryService();
 }
