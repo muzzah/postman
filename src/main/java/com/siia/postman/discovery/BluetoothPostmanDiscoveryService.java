@@ -1,8 +1,6 @@
 package com.siia.postman.discovery;
 
 import android.annotation.SuppressLint;
-import android.content.Context;
-import android.os.ParcelUuid;
 import android.support.annotation.NonNull;
 
 import com.siia.commons.core.log.Logcat;
@@ -15,7 +13,6 @@ import javax.inject.Inject;
 import javax.inject.Named;
 
 import io.reactivex.Scheduler;
-import io.reactivex.processors.PublishProcessor;
 import io.reactivex.subjects.PublishSubject;
 
 /**
@@ -28,30 +25,23 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
 
     //TODO move this into properties
     // xxxxxxxx-0000-1000-8000-00805F9B34FB
-    static final ParcelUuid SERVICE_ID = ParcelUuid.fromString("000001FA-0000-1000-8000-00805F9B34FB");
     private static final Pattern AP_DETAILS_PATTERN = Pattern.compile("^.{4}(DIRECT.+)\\|(.+)$");
 
-    private static String AP_DEVICE_NAME_FORMAT = "SIIA:%s:%s:%d";
-
-    private final PublishProcessor<PostmanDiscoveryEvent> eventStream;
     private final PublishSubject<PostmanDiscoveryEvent> oldEventStream;
     private final BluetoothBroadcaster bluetoothBroadcaster;
     private final BluetoothDiscoverer bluetoothDiscoverer;
     private AtomicBoolean isBroadcasting;
     private AtomicBoolean isDiscovering;
     private Scheduler computation;
-    private Context ctx;
 
 
     @Inject
     public BluetoothPostmanDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster,
                                             BluetoothDiscoverer bluetoothDiscoverer,
-                                            @Named("computation") Scheduler computation, Context ctx) {
+                                            @Named("computation") Scheduler computation) {
         this.bluetoothBroadcaster = bluetoothBroadcaster;
         this.bluetoothDiscoverer = bluetoothDiscoverer;
         this.computation = computation;
-        this.ctx = ctx;
-        this.eventStream = PublishProcessor.create();
         this.oldEventStream = PublishSubject.create();
         isBroadcasting = new AtomicBoolean(false);
         isDiscovering = new AtomicBoolean(false);

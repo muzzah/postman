@@ -1,6 +1,5 @@
 package com.siia.postman;
 
-import android.content.Context;
 import android.net.nsd.NsdManager;
 
 import com.siia.commons.core.android.AndroidDaggerModule;
@@ -43,8 +42,8 @@ class PostmanDaggerModule {
     @Provides
     @Named("bt")
     PostmanDiscoveryService btDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster, BluetoothDiscoverer bluetoothDiscoverer,
-                                               @Named("computation") Scheduler computation, Context ctx){
-        return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, computation, ctx);
+                                               @Named("computation") Scheduler computation){
+        return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, computation);
     }
 
     @Provides

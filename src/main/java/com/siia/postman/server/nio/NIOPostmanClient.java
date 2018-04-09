@@ -1,16 +1,19 @@
 package com.siia.postman.server.nio;
 
 
+import android.annotation.SuppressLint;
+import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.google.protobuf.MessageLite;
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
+import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanClientEvent;
 import com.siia.postman.server.PostmanMessage;
 
-import java.io.IOException;
+import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
 
@@ -22,13 +25,12 @@ import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.subjects.PublishSubject;
 
-import static com.siia.commons.core.check.Check.checkState;
-
+@SuppressLint("MissingPermission")
 public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
 
     private MessageQueueLoop messageRouter;
-    private final PublishSubject<PostmanClientEvent> clientEventStream;
+    private PublishSubject<PostmanClientEvent> clientEventStream;
     private NIOConnection client;
     private final Scheduler computation;
     private final Provider<PostmanMessage> messageProvider;
@@ -43,6 +45,8 @@ public class NIOPostmanClient implements PostmanClient {
         this.disposables = new CompositeDisposable();
         this.clientEventStream = PublishSubject.create();
 
+
+
     }
 
     @Override
@@ -51,8 +55,12 @@ public class NIOPostmanClient implements PostmanClient {
     }
 
     @Override
-    public void connect(String host, int port) {
-        checkState(!isConnected(), "Already connected");
+    public void connect(@NonNull final SocketChannel socketChannel, @NonNull String host, int port) {
+        if (isConnected()) {
+            Logcat.w(TAG, "Already connected");
+            return;
+        }
+
         messageRouter = new MessageQueueLoop();
         Observable<PostmanClientEvent> mappedItems = messageRouter.messageRouterEventStream()
                 .observeOn(computation)
@@ -77,15 +85,16 @@ public class NIOPostmanClient implements PostmanClient {
                         clientEvent -> {
                             switch (clientEvent.type()) {
                                 case CONNECTED:
-                                    Log.d(TAG, "Connected");
+                                    Log.v(TAG, "Connected");
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case DISCONNECTED:
-                                    Log.d(TAG, "Disconnected");
+                                    Log.v(TAG, "Disconnected");
                                     disconnect();
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case NEW_MESSAGE:
+                                    Log.v(TAG, "Next Msg");
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case IGNORE:
@@ -110,23 +119,24 @@ public class NIOPostmanClient implements PostmanClient {
                 .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
                 .subscribe(
                         messageQueueEvent -> {
-                            SocketChannel socketChannel = null;
                             try {
-                                InetSocketAddress serverAddress = new InetSocketAddress(host, port);
-                                socketChannel = SocketChannel.open();
-                                socketChannel.connect(serverAddress);
+                                socketChannel.socket().setKeepAlive(true);
+                                socketChannel.socket().setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
+                                        Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
+                                if (!socketChannel.connect(new InetSocketAddress(host, port))) {
+                                    Logcat.d(TAG, "connect return false, still connecting possibly");
+                                }
+
                                 socketChannel.configureBlocking(false);
                             } catch (Throwable e) {
-                                IO.closeQuietly(socketChannel);
-                                clientEventStream.onError(e);
-                                //Important to do this last, otherwise disposable are cleared and
-                                //an undeliverable exception is thrown
-                                disconnect();
+                                Logcat.e(TAG, "Problem connecting to teacher", e);
+                                handleFailureToConnect(socketChannel);
                                 return;
                             }
                             client = new NIOConnection(socketChannel, messageProvider);
                             messageRouter.addClient(client);
                         },
+                        //We have try catch above so should not really see the below msg
                         error -> Logcat.e(TAG, "[IGNORE] Error when connecting to server", error));
 
         disposables.add(socketConnectionDisposable);
@@ -135,13 +145,19 @@ public class NIOPostmanClient implements PostmanClient {
 
     }
 
+    private void handleFailureToConnect(@NonNull SocketChannel socketChannel) {
+        IO.closeQuietly(socketChannel);
+        clientEventStream.onError(new ConnectException("Could not establish connection "));
+        disconnect();
+    }
+
     @Override
-    public void sendMessage(PostmanMessage msg) {
+    public void sendMessage(@NonNull PostmanMessage msg) {
         messageRouter.addMessageToQueue(msg, client);
     }
 
     @Override
-    public void sendMessage(MessageLite msg) {
+    public void sendMessage(@NonNull MessageLite msg) {
         messageRouter.addMessageToQueue(new PostmanMessage(msg), client);
     }
 

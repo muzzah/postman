@@ -28,7 +28,6 @@ import static com.siia.commons.core.check.Check.checkState;
 public class NIOPostmanServer implements PostmanServer {
     private static final String TAG = Logcat.getTag();
 
-    private final InetSocketAddress bindAddress;
     private ServerEventLoop serverEventLoop;
     private PublishSubject<ServerEvent> serverEventsStream;
     private final ConcurrentMap<UUID, Connection> clients;
@@ -38,7 +37,6 @@ public class NIOPostmanServer implements PostmanServer {
     public NIOPostmanServer(Provider<PostmanMessage> messageProvider) {
         this.messageProvider = messageProvider;
         this.disposables = new CompositeDisposable();
-        this.bindAddress = new InetSocketAddress("0.0.0.0", 8089);
         this.serverEventsStream = PublishSubject.create();
         this.clients = new ConcurrentHashMap<>();
     }
@@ -90,9 +88,8 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
-    public void serverStart() {
+    public void serverStart(@NonNull InetSocketAddress bindAddress) {
         checkState(!isRunning(), "Server is already running");
-
         serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation(), messageProvider);
 
 

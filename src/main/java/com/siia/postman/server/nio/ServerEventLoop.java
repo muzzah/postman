@@ -4,6 +4,7 @@ import android.util.Log;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
+import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.ServerEvent;
 
@@ -53,7 +54,6 @@ class ServerEventLoop {
 
         disposables.clear();
         IO.closeQuietly(clientJoinSelector);
-        IO.closeQuietly(serverSocketChannel.socket());
         IO.closeQuietly(serverSocketChannel);
         messageRouter.shutdown();
 
@@ -185,6 +185,8 @@ class ServerEventLoop {
             clientJoinSelector = Selector.open();
             serverSocketChannel = ServerSocketChannel.open();
             ServerSocket serverSocket = serverSocketChannel.socket();
+            serverSocket.setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
+                    Connection.LATENCY_PREFERENCE,Connection.BANDWIDTH_PREFERENCE);
             serverSocket.bind(bindAddress);
             v(TAG, "Server bound to %s:%d", bindAddress.getAddress().getHostAddress(), serverSocket.getLocalPort());
             serverSocketChannel.configureBlocking(false);
@@ -204,6 +206,9 @@ class ServerEventLoop {
         SocketChannel clientSocketChannel = null;
         try {
             clientSocketChannel = serverSocketChannel.accept();
+            clientSocketChannel.socket().setKeepAlive(true);
+            clientSocketChannel.socket().setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
+                    Connection.LATENCY_PREFERENCE,Connection.BANDWIDTH_PREFERENCE);
             clientSocketChannel.configureBlocking(false);
 
         } catch (IOException e) {

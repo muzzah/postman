@@ -16,7 +16,9 @@ import android.support.annotation.AnyThread;
 import android.support.annotation.NonNull;
 
 import com.siia.commons.core.android.AndroidUtils;
+import com.siia.commons.core.constants.TimeConstant;
 import com.siia.commons.core.log.Logcat;
+import com.siia.commons.core.timing.StopWatch;
 
 import org.reactivestreams.Subscriber;
 
@@ -44,6 +46,7 @@ public class BluetoothDiscoverer {
     private final BluetoothAdapter bluetoothAdapter;
     private final Context ctx;
     private final AndroidUtils androidUtils;
+    private final StopWatch stopWatch;
     private Scheduler io;
     private CountDownLatch bluetoothEnabledLatch;
     private CountDownLatch deviceFoundLatch;
@@ -52,10 +55,11 @@ public class BluetoothDiscoverer {
     private Subscriber<? super RemoteAPDetails> subscriber;
 
     @Inject
-    public BluetoothDiscoverer(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, @Named("io") Scheduler io) {
+    public BluetoothDiscoverer(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch, @Named("io") Scheduler io) {
         this.bluetoothAdapter = bluetoothAdapter;
         this.ctx = ctx;
         this.androidUtils = androidUtils;
+        this.stopWatch = stopWatch;
         this.io = io;
     }
 
@@ -67,28 +71,32 @@ public class BluetoothDiscoverer {
                 registerReceiver();
 
                 bluetoothEnabledLatch = new CountDownLatch(1);
+                stopWatch.start();
                 boolean enable = bluetoothAdapter.enable();
                 Logcat.result_v(TAG, "enable bluetooth", enable);
-
                 if (!enable) {
+                    stopWatch.stopAndPrintMillis("Enable BT Failed");
                     subscriber.onError(new UnexpectedDiscoveryProblem("Could not enable bluetooth"));
                     return;
                 }
 
-
-                awaitLatch(bluetoothEnabledLatch, 10);
+                awaitLatch(bluetoothEnabledLatch, TimeConstant.NETWORK_LATCH_TIME_WAIT);
+                stopWatch.stopAndPrintMillis("Enable BT Success");
             }
 
             if (!bluetoothAdapter.isEnabled()) {
                 subscriber.onError(new UnexpectedDiscoveryProblem("Bluetooth not enabled"));
                 return;
             }
+
             this.subscriber = subscriber;
             deviceFoundLatch = new CountDownLatch(1);
+            stopWatch.start();
             startDiscovery(nameToFind, subscriber);
 
 
             awaitLatch(deviceFoundLatch);
+            stopWatch.stopAndPrintSeconds("Discover Service onComplete");
             subscriber.onComplete();
         }).subscribeOn(io);
     }
@@ -159,7 +167,13 @@ public class BluetoothDiscoverer {
 
             if (device != null && device.getName() != null && device.getName().contains(nameToFind)) {
                 Logcat.d(TAG, "Found device : %s", device.getName());
-                bluetoothAdapter.getBluetoothLeScanner().stopScan(this);
+                BluetoothLeScanner bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
+                if(bluetoothLeScanner == null) {
+                    Logcat.w(TAG, "LE Scanner was null");
+                    return;
+                }
+
+                bluetoothLeScanner.stopScan(this);
                 subscriber.onNext(new RemoteAPDetails(device.getName()));
 
             }

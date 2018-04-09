@@ -6,6 +6,7 @@ import android.support.annotation.WorkerThread;
 
 import com.google.protobuf.MessageLite;
 
+import java.net.InetSocketAddress;
 import java.util.UUID;
 
 import javax.inject.Singleton;
@@ -18,7 +19,7 @@ public interface PostmanServer {
 
 
     @AnyThread
-    void serverStart();
+    void serverStart(@NonNull InetSocketAddress bindAddress);
 
     @WorkerThread
     void stopServer();
