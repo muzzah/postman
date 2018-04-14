@@ -22,8 +22,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import javax.inject.Named;
-
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
@@ -43,7 +41,7 @@ class MessageQueueLoop {
     private Scheduler newThreadScheduler;
 
     @SuppressLint("UseSparseArrays")
-    MessageQueueLoop(@Named("new") Scheduler newThreadScheduler) {
+    MessageQueueLoop(Scheduler newThreadScheduler) {
         this.newThreadScheduler = newThreadScheduler;
         this.messageRouterEventStream = PublishSubject.create();
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
