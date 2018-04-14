@@ -23,6 +23,8 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.processors.FlowableProcessor;
 import io.reactivex.processors.PublishProcessor;
 
+import static java.util.Objects.nonNull;
+
 
 public class NIOPostmanServer implements PostmanServer {
     private static final String TAG = Logcat.getTag();
@@ -34,11 +36,13 @@ public class NIOPostmanServer implements PostmanServer {
     private final CompositeDisposable disposables;
     private final Scheduler computation;
     private final Scheduler io;
+    private final Scheduler newThreadScheduler;
 
-    public NIOPostmanServer(Provider<PostmanMessage> messageProvider, Scheduler computation, Scheduler io) {
+    public NIOPostmanServer(Provider<PostmanMessage> messageProvider, Scheduler computation, Scheduler io, Scheduler newThreadScheduler) {
         this.messageProvider = messageProvider;
         this.computation = computation;
         this.io = io;
+        this.newThreadScheduler = newThreadScheduler;
         this.disposables = new CompositeDisposable();
         this.clients = new ConcurrentHashMap<>();
         this.serverEventsStream = PublishProcessor.<ServerEvent>create().toSerialized();
@@ -93,7 +97,7 @@ public class NIOPostmanServer implements PostmanServer {
         }
 
         Logcat.d(TAG, "Starting postman server");
-        serverEventLoop = new ServerEventLoop(bindAddress, computation, messageProvider, io);
+        serverEventLoop = new ServerEventLoop(bindAddress, computation, messageProvider, io, newThreadScheduler);
 
         Disposable eventDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(computation)
@@ -132,14 +136,10 @@ public class NIOPostmanServer implements PostmanServer {
 
         Disposable newMessageDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(computation)
-                .filter(serverEvent -> {
-                    boolean shouldDeliver = serverEvent.isNewMessage() && clients.containsKey(serverEvent.connectionId());
-                    Logcat.v(TAG, "Should deliver=%b", shouldDeliver);
-                    return shouldDeliver;
-                })
+                .filter(serverEvent -> serverEvent.isNewMessage() && clients.containsKey(serverEvent.connectionId()))
                 .subscribe(
                         event -> {
-                            Logcat.v(TAG, "hasSubscriber=%b isComplete=%b hasThrowable=%b",
+                            Logcat.v(TAG, "Msg Stream hasSubscriber=%b isComplete=%b hasThrowable=%b",
                                     serverEventsStream.hasSubscribers(),
                                     serverEventsStream.hasComplete(),
                                     serverEventsStream.hasThrowable());
@@ -165,7 +165,7 @@ public class NIOPostmanServer implements PostmanServer {
 
         disposables.clear();
 
-        if (serverEventLoop != null) {
+        if (nonNull(serverEventLoop)) {
             serverEventLoop.shutdownLoop();
         }
         clients.clear();
@@ -173,7 +173,7 @@ public class NIOPostmanServer implements PostmanServer {
 
     @Override
     public boolean isRunning() {
-        return serverEventLoop != null
+        return nonNull(serverEventLoop)
                 && serverEventLoop.isRunning();
     }
 

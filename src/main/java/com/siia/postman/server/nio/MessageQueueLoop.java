@@ -22,7 +22,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import io.reactivex.Completable;
+import javax.inject.Named;
+
+import io.reactivex.BackpressureStrategy;
+import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
 import io.reactivex.subjects.PublishSubject;
 
@@ -33,17 +36,15 @@ class MessageQueueLoop {
     private static final String TAG = Logcat.getTag();
 
     private Selector readWriteSelector;
-    private final Scheduler computation;
     private final ConcurrentMap<SelectionKey, NIOConnection> connectedClientsBySelectionKey;
     private final ConcurrentMap<Connection, BlockingQueue<PostmanMessage>> messageQueueForEachClient;
     private final List<NIOConnection> clientsToRegister;
-    private final Scheduler io;
     private PublishSubject<MessageQueueEvent> messageRouterEventStream;
+    private Scheduler newThreadScheduler;
 
     @SuppressLint("UseSparseArrays")
-    MessageQueueLoop(Scheduler io, Scheduler computation) {
-        this.io = io;
-        this.computation = computation;
+    MessageQueueLoop(@Named("new") Scheduler newThreadScheduler) {
+        this.newThreadScheduler = newThreadScheduler;
         this.messageRouterEventStream = PublishSubject.create();
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
         this.messageQueueForEachClient = new ConcurrentHashMap<>();
@@ -127,57 +128,56 @@ class MessageQueueLoop {
      * OnError - Called when loop exits due unexpected error
      * onComplete - Called after a graceful shutdown
      */
-    void startMessageQueueLoop() {
-        if(isRunning()) {
+    Flowable<MessageQueueEvent> startMessageQueueLoop() {
+        if (isRunning()) {
             Logcat.w(TAG, "Message Queue already running");
-            return;
+            return Flowable.<MessageQueueEvent>create(
+                    emitter -> emitter.onError(new IllegalStateException("Already running the loop")),
+                    BackpressureStrategy.LATEST)
+                    .subscribeOn(newThreadScheduler);
         }
 
         Logcat.d(TAG, "Initialising message loop");
-        Completable.create(completableEmitter -> {
-            Logcat.v(TAG, "At start Message Queue");
-            try {
-                readWriteSelector = Selector.open();
-            } catch (IOException e) {
-                Log.e(TAG, "Failed to open selector for read/write", e);
-                completableEmitter.onError(e);
-                return;
-            }
-            Logcat.v(TAG, "Firing ready event");
-            messageRouterEventStream.onNext(MessageQueueEvent.ready());
-            while (true) {
-                int channelsReady = readWriteSelector.select();
 
-                if (!readWriteSelector.isOpen()) {
-                    break;
-                }
+        return Flowable.<MessageQueueEvent>create(
+                emitter -> {
+                    Logcat.v(TAG, "At start Message Queue");
+                    try {
+                        readWriteSelector = Selector.open();
+                    } catch (IOException e) {
+                        Log.e(TAG, "Failed to open selector for read/write", e);
+                        emitter.onError(e);
+                        return;
+                    }
 
-                registerClientsIfNeeded();
+                    Logcat.v(TAG, "Firing ready event");
+                    emitter.onNext(MessageQueueEvent.ready());
+
+                    try {
+                        while (true) {
+                            int channelsReady = readWriteSelector.select();
+
+                            if (!readWriteSelector.isOpen()) {
+                                break;
+                            }
+
+                            registerClientsIfNeeded();
 
 
-                v(TAG, "%s channel(s) ready in write loop", channelsReady);
+                            v(TAG, "%s channel(s) ready in write loop", channelsReady);
 
-                processKeysWithUpdates();
+                            processKeysWithUpdates();
 
-            }
-
-            Logcat.d(TAG, "Message Queue Loop Exited");
-            completableEmitter.onComplete();
-
-        }).subscribeOn(io)
-                .observeOn(computation)
-                .subscribe(
-                        () -> {
-                            Logcat.i(TAG, "Message queue loop completed");
-                            shutdown();
-                            messageRouterEventStream.onComplete();
-                        },
-                        error -> {
-                            Logcat.e(TAG, "Error in Message queue loop");
-                            shutdown();
-                            messageRouterEventStream.onError(error);
                         }
-                );
+                    } catch (Throwable e) {
+
+                    }
+
+                    Logcat.d(TAG, "Message Queue Loop Exited");
+                    emitter.onComplete();
+
+                }, BackpressureStrategy.BUFFER)
+                .subscribeOn(newThreadScheduler);
 
     }
 

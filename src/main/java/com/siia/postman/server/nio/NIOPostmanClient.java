@@ -37,12 +37,14 @@ public class NIOPostmanClient implements PostmanClient {
     private final Provider<PostmanMessage> messageProvider;
     private final CompositeDisposable disposables;
     private final Scheduler ioScheduler;
+    private final Scheduler newThreadScheduler;
 
 
-    public NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler ioScheduler) {
+    public NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler ioScheduler, Scheduler newThreadScheduler) {
         this.computation = computation;
         this.messageProvider = messageProvider;
         this.ioScheduler = ioScheduler;
+        this.newThreadScheduler = newThreadScheduler;
         this.disposables = new CompositeDisposable();
         this.clientEventStream = PublishProcessor.<PostmanClientEvent>create().toSerialized();
     }
@@ -59,7 +61,7 @@ public class NIOPostmanClient implements PostmanClient {
             return;
         }
 
-        messageRouter = new MessageQueueLoop(ioScheduler, computation);
+        messageRouter = new MessageQueueLoop(newThreadScheduler);
         Disposable msgQueueDisposable = messageRouter.messageQueueEventsStream()
                 .observeOn(computation)
                 .map(
@@ -109,36 +111,40 @@ public class NIOPostmanClient implements PostmanClient {
                         });
 
 
-        Disposable socketConnectionDisposable = messageRouter.messageQueueEventsStream()
-                .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
+        Disposable socketConnectionDisposable = messageRouter.startMessageQueueLoop()
                 .observeOn(ioScheduler)
-                .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
                 .subscribe(
-                        messageQueueEvent -> {
-                            try {
-                                socketChannel.socket().setKeepAlive(true);
-                                socketChannel.socket().setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
-                                        Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
-                                if (!socketChannel.connect(new InetSocketAddress(host, port))) {
-                                    Logcat.d(TAG, "connect return false, still connecting possibly");
-                                }
-
-                                socketChannel.configureBlocking(false);
-                            } catch (Throwable e) {
-                                Logcat.e(TAG, "Problem connecting to teacher", e);
-                                handleFailureToConnect(socketChannel);
-                                return;
-                            }
-                            client = new NIOConnection(socketChannel, messageProvider);
-                            messageRouter.addClient(client);
+                        readyMsg -> connectToServer(socketChannel, host, port),
+                        error -> {
+                            disconnect();
+                            clientEventStream.onError(error);
                         },
-                        //We have try catch above so should not really see the below msg
-                        error -> Logcat.e(TAG, "[IGNORE] Error when connecting to server", error));
+                        () -> Logcat.i(TAG, "Message Queue completed"));
+
 
         disposables.add(socketConnectionDisposable);
 
         disposables.add(msgQueueDisposable);
 
+    }
+
+    private void connectToServer(@NonNull SocketChannel socketChannel, @NonNull InetAddress host, int port) {
+        try {
+            socketChannel.socket().setKeepAlive(true);
+            socketChannel.socket().setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
+                    Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
+            if (!socketChannel.connect(new InetSocketAddress(host, port))) {
+                Logcat.d(TAG, "connect return false, still connecting possibly");
+            }
+
+            socketChannel.configureBlocking(false);
+        } catch (Throwable e) {
+            Logcat.e(TAG, "Problem connecting to teacher", e);
+            handleFailureToConnect(socketChannel);
+            return;
+        }
+        client = new NIOConnection(socketChannel, messageProvider);
+        messageRouter.addClient(client);
     }
 
     private void handleFailureToConnect(@NonNull SocketChannel socketChannel) {
@@ -161,15 +167,13 @@ public class NIOPostmanClient implements PostmanClient {
     public void disconnect() {
         disposables.clear();
 
-        if (client != null) {
-            client.destroy();
-        }
-
         if (messageRouter != null) {
             messageRouter.shutdown();
         }
 
-
+        if (client != null) {
+            client.destroy();
+        }
 
     }
 

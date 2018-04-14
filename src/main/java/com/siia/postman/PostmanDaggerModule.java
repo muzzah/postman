@@ -26,9 +26,11 @@ import io.reactivex.Scheduler;
 class PostmanDaggerModule {
 
     @Provides
-    PostmanServer postmanServer(Provider<PostmanMessage> messageProvider, @Named("computation") Scheduler computation,
-                                @Named("computation") Scheduler io){
-        return new NIOPostmanServer(messageProvider, computation, io);
+    PostmanServer postmanServer(Provider<PostmanMessage> messageProvider,
+                                @Named("computation") Scheduler computation,
+                                @Named("new") Scheduler newThreadScheduler,
+                                @Named("io") Scheduler io){
+        return new NIOPostmanServer(messageProvider, computation, io, newThreadScheduler);
     }
 
     @Provides
@@ -41,15 +43,16 @@ class PostmanDaggerModule {
     @Named("bt")
     PostmanDiscoveryService btDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster,
                                                BluetoothDiscoverer bluetoothDiscoverer,
-                                               @Named("computation") Scheduler computation){
-        return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, computation);
+                                               @Named("io") Scheduler io){
+        return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, io);
     }
 
     @Provides
-    PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler,
+    PostmanClient providesPostmanClient(@Named("computation") Scheduler computation,
                                         @Named("io") Scheduler ioScheduler,
+                                        @Named("new") Scheduler newThreadScheduler,
                                         Provider<PostmanMessage> messageProvider){
-        return new NIOPostmanClient(scheduler, messageProvider, ioScheduler);
+        return new NIOPostmanClient(computation, messageProvider, ioScheduler, newThreadScheduler);
     }
 }
 

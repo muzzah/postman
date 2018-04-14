@@ -40,12 +40,15 @@ class ServerEventLoop {
     private final FlowableProcessor<ServerEvent> serverEventStream;
     private final CompositeDisposable disposables;
     private final Scheduler io;
+    private final Scheduler newThreadScheduler;
 
-    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler io) {
+    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler io,
+                    Scheduler newThreadScheduler) {
         this.bindAddress = bindAddress;
         this.computation = computation;
         this.messageProvider = messageProvider;
         this.io = io;
+        this.newThreadScheduler = newThreadScheduler;
         serverEventStream = PublishProcessor.<ServerEvent>create().toSerialized();
         disposables = new CompositeDisposable();
     }
@@ -70,8 +73,8 @@ class ServerEventLoop {
     }
 
     void startLooping() {
-        Logcat.d(TAG, "Intialising Server Event Loop");
-        messageRouter = new MessageQueueLoop(io, computation);
+        Logcat.d(TAG, "Initialising Server Event Loop");
+        messageRouter = new MessageQueueLoop(newThreadScheduler);
         disposables.add(messageRouter.messageQueueEventsStream()
                 .observeOn(computation)
                 .subscribe(
@@ -87,25 +90,17 @@ class ServerEventLoop {
                 ));
 
 
-        disposables.add(messageRouter.messageQueueEventsStream()
-                .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
+        messageRouter.startMessageQueueLoop()
                 .observeOn(io)
-                .filter(messageQueueEvent -> {
-                    boolean isReady = messageQueueEvent.type().equals(MessageQueueEvent.Type.READY);
-                    Logcat.result_v(TAG, "isReady", isReady);
-                    return isReady;
-                })
                 .subscribe(
-                        this::startListeningForClients,
-                        this::handleMessageQueueError));
-
+                        readyMsg -> startListeningForClients(),
+                        error -> {
+                            shutdownLoop();
+                            serverEventStream.onError(error);
+                        },
+                        () -> Logcat.i(TAG, "Message Queue completed"));
 
     }
-
-    private void handleMessageQueueError(Throwable throwable) {
-        Logcat.e(TAG, "Error in Message", throwable);
-    }
-
 
     private void handleMessageQueueEvent(MessageQueueEvent messageQueueEvent){
         switch (messageQueueEvent.type()) {
@@ -129,7 +124,7 @@ class ServerEventLoop {
 
     }
 
-    private void startListeningForClients(@SuppressWarnings("unused") MessageQueueEvent messageQueueEvent) {
+    private void startListeningForClients() {
         Logcat.d(TAG, "Beginning to listen to clients");
         if (!initialiseServerSocket()) {
             serverEventStream.onError(new SocketException("Could not initialise server socket"));
