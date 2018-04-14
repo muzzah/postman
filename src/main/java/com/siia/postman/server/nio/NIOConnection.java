@@ -2,7 +2,6 @@ package com.siia.postman.server.nio;
 
 import android.support.annotation.NonNull;
 
-import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
@@ -19,6 +18,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
 import javax.inject.Provider;
+
+import static com.siia.commons.core.io.IO.closeQuietly;
 
 class NIOConnection implements Connection {
     private static final String TAG = Logcat.getTag();
@@ -88,10 +89,8 @@ class NIOConnection implements Connection {
     }
 
     void destroy() {
-        if(selectionKey != null) {
-            selectionKey.cancel();
-        }
-        IO.closeQuietly(clientSocketChannel);
+        selectionKey.cancel();
+        closeQuietly(clientSocketChannel);
     }
 
     @Override

@@ -5,18 +5,19 @@ import android.support.annotation.NonNull;
 
 import com.google.protobuf.MessageLite;
 
+import java.net.InetAddress;
 import java.nio.channels.SocketChannel;
 
 import javax.inject.Singleton;
 
-import io.reactivex.subjects.PublishSubject;
+import io.reactivex.processors.FlowableProcessor;
 
 @Singleton
 public interface PostmanClient {
 
-    PublishSubject<PostmanClientEvent> getClientEventStream();
+    FlowableProcessor<PostmanClientEvent> getClientEventStream();
 
-    void connect(@NonNull SocketChannel socketChannel, @NonNull String host, int port);
+    void connect(@NonNull SocketChannel socketChannel, @NonNull InetAddress host, int port);
 
     /**
      * Add message top be sent. Messages are not guaranteed to be sent once this method returns.

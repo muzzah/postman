@@ -14,23 +14,24 @@ import com.siia.postman.server.PostmanClientEvent;
 import com.siia.postman.server.PostmanMessage;
 
 import java.net.ConnectException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
 
 import javax.inject.Provider;
 
-import io.reactivex.Observable;
 import io.reactivex.Scheduler;
 import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.disposables.Disposable;
-import io.reactivex.subjects.PublishSubject;
+import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.processors.PublishProcessor;
 
 @SuppressLint("MissingPermission")
 public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
 
     private MessageQueueLoop messageRouter;
-    private PublishSubject<PostmanClientEvent> clientEventStream;
+    private FlowableProcessor<PostmanClientEvent> clientEventStream;
     private NIOConnection client;
     private final Scheduler computation;
     private final Provider<PostmanMessage> messageProvider;
@@ -43,26 +44,23 @@ public class NIOPostmanClient implements PostmanClient {
         this.messageProvider = messageProvider;
         this.ioScheduler = ioScheduler;
         this.disposables = new CompositeDisposable();
-        this.clientEventStream = PublishSubject.create();
-
-
-
+        this.clientEventStream = PublishProcessor.<PostmanClientEvent>create().toSerialized();
     }
 
     @Override
-    public PublishSubject<PostmanClientEvent> getClientEventStream() {
+    public FlowableProcessor<PostmanClientEvent> getClientEventStream() {
         return clientEventStream;
     }
 
     @Override
-    public void connect(@NonNull final SocketChannel socketChannel, @NonNull String host, int port) {
+    public void connect(@NonNull final SocketChannel socketChannel, @NonNull InetAddress host, int port) {
         if (isConnected()) {
             Logcat.w(TAG, "Already connected");
             return;
         }
 
-        messageRouter = new MessageQueueLoop();
-        Observable<PostmanClientEvent> mappedItems = messageRouter.messageRouterEventStream()
+        messageRouter = new MessageQueueLoop(ioScheduler, computation);
+        Disposable msgQueueDisposable = messageRouter.messageQueueEventsStream()
                 .observeOn(computation)
                 .map(
                         event -> {
@@ -78,9 +76,7 @@ public class NIOPostmanClient implements PostmanClient {
                                 default:
                                     return PostmanClientEvent.ignoreEvent();
                             }
-                        });
-
-        Disposable clientEventsDisposable = mappedItems
+                        })
                 .subscribe(
                         clientEvent -> {
                             switch (clientEvent.type()) {
@@ -113,10 +109,10 @@ public class NIOPostmanClient implements PostmanClient {
                         });
 
 
-        Disposable socketConnectionDisposable = messageRouter.messageRouterEventStream()
+        Disposable socketConnectionDisposable = messageRouter.messageQueueEventsStream()
+                .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
                 .observeOn(ioScheduler)
                 .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
-                .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
                 .subscribe(
                         messageQueueEvent -> {
                             try {
@@ -141,7 +137,7 @@ public class NIOPostmanClient implements PostmanClient {
 
         disposables.add(socketConnectionDisposable);
 
-        disposables.add(clientEventsDisposable);
+        disposables.add(msgQueueDisposable);
 
     }
 
@@ -165,13 +161,15 @@ public class NIOPostmanClient implements PostmanClient {
     public void disconnect() {
         disposables.clear();
 
+        if (client != null) {
+            client.destroy();
+        }
+
         if (messageRouter != null) {
             messageRouter.shutdown();
         }
 
-        if (client != null) {
-            client.destroy();
-        }
+
 
     }
 

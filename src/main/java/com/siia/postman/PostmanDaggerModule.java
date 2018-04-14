@@ -17,7 +17,6 @@ import com.siia.postman.server.nio.NIOPostmanServer;
 
 import javax.inject.Named;
 import javax.inject.Provider;
-import javax.inject.Singleton;
 
 import dagger.Module;
 import dagger.Provides;
@@ -27,27 +26,26 @@ import io.reactivex.Scheduler;
 class PostmanDaggerModule {
 
     @Provides
-    @Singleton
-    PostmanServer postmanServer(Provider<PostmanMessage> messageProvider){
-        return new NIOPostmanServer(messageProvider);
+    PostmanServer postmanServer(Provider<PostmanMessage> messageProvider, @Named("computation") Scheduler computation,
+                                @Named("computation") Scheduler io){
+        return new NIOPostmanServer(messageProvider, computation, io);
     }
 
     @Provides
-    @Singleton
     @Named("nsd")
-    PostmanDiscoveryService nsdDiscoveryService(NsdManager nsdManager){
-            return new AndroidNsdDiscoveryService(nsdManager);
+    PostmanDiscoveryService nsdDiscoveryService(NsdManager nsdManager, @Named("io") Scheduler io){
+            return new AndroidNsdDiscoveryService(nsdManager, io);
     }
 
     @Provides
     @Named("bt")
-    PostmanDiscoveryService btDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster, BluetoothDiscoverer bluetoothDiscoverer,
+    PostmanDiscoveryService btDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster,
+                                               BluetoothDiscoverer bluetoothDiscoverer,
                                                @Named("computation") Scheduler computation){
         return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, computation);
     }
 
     @Provides
-    @Singleton
     PostmanClient providesPostmanClient(@Named("computation") Scheduler scheduler,
                                         @Named("io") Scheduler ioScheduler,
                                         Provider<PostmanMessage> messageProvider){

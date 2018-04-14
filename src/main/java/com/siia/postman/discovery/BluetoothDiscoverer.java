@@ -5,15 +5,14 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.support.annotation.AnyThread;
 import android.support.annotation.NonNull;
+import android.support.annotation.WorkerThread;
 
 import com.siia.commons.core.android.AndroidUtils;
 import com.siia.commons.core.constants.TimeConstant;
@@ -27,12 +26,9 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import javax.inject.Inject;
-import javax.inject.Named;
-
-import io.reactivex.Flowable;
-import io.reactivex.Scheduler;
 
 import static com.siia.commons.core.concurrency.ConcurrencyUtils.awaitLatch;
+import static java.util.Objects.nonNull;
 
 /**
  * Copyright Siia 2018
@@ -47,76 +43,78 @@ public class BluetoothDiscoverer {
     private final Context ctx;
     private final AndroidUtils androidUtils;
     private final StopWatch stopWatch;
-    private Scheduler io;
     private CountDownLatch bluetoothEnabledLatch;
-    private CountDownLatch deviceFoundLatch;
+    private CountDownLatch finishScanningLatch;
     private BluetoothStateReceiver receiver;
     private ScanCallback leScanCallback;
-    private Subscriber<? super RemoteAPDetails> subscriber;
 
     @Inject
-    public BluetoothDiscoverer(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch, @Named("io") Scheduler io) {
+    public BluetoothDiscoverer(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch) {
         this.bluetoothAdapter = bluetoothAdapter;
         this.ctx = ctx;
         this.androidUtils = androidUtils;
         this.stopWatch = stopWatch;
-        this.io = io;
     }
 
-    @AnyThread
-    public Flowable<RemoteAPDetails> findService(@NonNull String nameToFind) {
-        return Flowable.<RemoteAPDetails>fromPublisher(subscriber -> {
+    @WorkerThread
+    public void findService(@NonNull String nameToFind, Subscriber<? super PostmanDiscoveryEvent> subscriber) {
 
-            if (!bluetoothAdapter.isEnabled()) {
-                registerReceiver();
+        registerReceiver();
+        if (!bluetoothAdapter.isEnabled()) {
 
-                bluetoothEnabledLatch = new CountDownLatch(1);
-                stopWatch.start();
-                boolean enable = bluetoothAdapter.enable();
-                Logcat.result_v(TAG, "enable bluetooth", enable);
-                if (!enable) {
-                    stopWatch.stopAndPrintMillis("Enable BT Failed");
-                    subscriber.onError(new UnexpectedDiscoveryProblem("Could not enable bluetooth"));
-                    return;
-                }
+            bluetoothEnabledLatch = new CountDownLatch(1);
+            stopWatch.start();
+            boolean enable = bluetoothAdapter.enable();
+            Logcat.result_v(TAG, "enable bluetooth", enable);
 
-                awaitLatch(bluetoothEnabledLatch, TimeConstant.NETWORK_LATCH_TIME_WAIT);
-                stopWatch.stopAndPrintMillis("Enable BT Success");
-            }
-
-            if (!bluetoothAdapter.isEnabled()) {
-                subscriber.onError(new UnexpectedDiscoveryProblem("Bluetooth not enabled"));
+            if (!enable) {
+                stopWatch.stopAndPrintMillis("Enable BT Failed");
+                stopDiscovery();
+                subscriber.onError(new PostmanDiscoveryException("Could not enable bluetooth"));
                 return;
             }
 
-            this.subscriber = subscriber;
-            deviceFoundLatch = new CountDownLatch(1);
-            stopWatch.start();
-            startDiscovery(nameToFind, subscriber);
+            awaitLatch(bluetoothEnabledLatch, TimeConstant.NETWORK_LATCH_TIME_WAIT);
+            stopWatch.stopAndPrintMillis("Enable BT Success");
+        }
 
+        if (!bluetoothAdapter.isEnabled()) {
+            stopDiscovery();
+            subscriber.onError(new PostmanDiscoveryException("Bluetooth not enabled"));
+            return;
+        }
 
-            awaitLatch(deviceFoundLatch);
-            stopWatch.stopAndPrintSeconds("Discover Service onComplete");
-            subscriber.onComplete();
-        }).subscribeOn(io);
+        finishScanningLatch = new CountDownLatch(1);
+        stopWatch.start();
+        startDiscovery(nameToFind, subscriber);
+        awaitLatch(finishScanningLatch);
+        stopWatch.stopAndPrintSeconds("Discover Service completed");
     }
 
+    @WorkerThread
     public void stopDiscovery() {
+
         androidUtils.unregisterReceiverQuietly(receiver);
-        if(bluetoothEnabledLatch != null) {
+
+        if (nonNull(bluetoothEnabledLatch)) {
             bluetoothEnabledLatch.countDown();
         }
-        if(deviceFoundLatch != null) {
-            deviceFoundLatch.countDown();
+        if (nonNull(finishScanningLatch)) {
+            finishScanningLatch.countDown();
         }
-        bluetoothAdapter.getBluetoothLeScanner().stopScan(leScanCallback);
+        BluetoothLeScanner bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
+
+        if (nonNull(bluetoothLeScanner)) {
+            bluetoothLeScanner.stopScan(leScanCallback);
+        }
+
         if (bluetoothAdapter.isEnabled()) {
             Logcat.result_v(TAG, "Disabling Adapter", bluetoothAdapter.disable());
         }
     }
 
 
-    private void startDiscovery(String nameToFind, Subscriber<? super RemoteAPDetails> subscriber) {
+    private void startDiscovery(String nameToFind, Subscriber<? super PostmanDiscoveryEvent> subscriber) {
 
         BluetoothLeScanner scanner = bluetoothAdapter.getBluetoothLeScanner();
         ScanSettings scanSettings = new ScanSettings.Builder()
@@ -137,19 +135,14 @@ public class BluetoothDiscoverer {
         receiver = new BluetoothStateReceiver();
         IntentFilter filter = new IntentFilter();
         filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
-        filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
         ctx.registerReceiver(receiver, filter);
-    }
-
-    public void continueDiscovery(String serviceName) {
-        startDiscovery(serviceName, subscriber);
     }
 
     private class LeScanCallback extends ScanCallback {
         private final CharSequence nameToFind;
-        private final Subscriber<? super RemoteAPDetails> subscriber;
+        private final Subscriber<? super PostmanDiscoveryEvent> subscriber;
 
-        private LeScanCallback(CharSequence nameToFind, Subscriber<? super RemoteAPDetails> subscriber) {
+        private LeScanCallback(CharSequence nameToFind, Subscriber<? super PostmanDiscoveryEvent> subscriber) {
             this.nameToFind = nameToFind;
             this.subscriber = subscriber;
         }
@@ -158,24 +151,11 @@ public class BluetoothDiscoverer {
         public void onScanResult(int callbackType, ScanResult result) {
             Logcat.v(TAG, "Found device %s", result.toString());
 
-            ScanRecord scanRecord = result.getScanRecord();
-            if (scanRecord == null) {
-                return;
-            }
-
             BluetoothDevice device = result.getDevice();
 
-            if (device != null && device.getName() != null && device.getName().contains(nameToFind)) {
+            if (nonNull(device) && nonNull(device.getName()) && device.getName().contains(nameToFind)) {
                 Logcat.d(TAG, "Found device : %s", device.getName());
-                BluetoothLeScanner bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
-                if(bluetoothLeScanner == null) {
-                    Logcat.w(TAG, "LE Scanner was null");
-                    return;
-                }
-
-                bluetoothLeScanner.stopScan(this);
-                subscriber.onNext(new RemoteAPDetails(device.getName()));
-
+                subscriber.onNext(new PostmanDiscoveryEvent(new ServiceDetails(device.getName())));
             }
 
         }
@@ -188,7 +168,9 @@ public class BluetoothDiscoverer {
         @Override
         public void onScanFailed(int errorCode) {
             Logcat.e(TAG, "Problem when scanning for devices %d", errorCode);
-            subscriber.onError(new UnexpectedDiscoveryProblem("BT problem when scanning for devices"));
+            subscriber.onError(new PostmanDiscoveryException("BT problem when scanning for devices"));
+            finishScanningLatch.countDown();
+
 
         }
     }
@@ -208,25 +190,6 @@ public class BluetoothDiscoverer {
                 return state == BluetoothAdapter.STATE_ON;
             }
             return false;
-        }
-    }
-
-    class UnexpectedDiscoveryProblem extends RuntimeException {
-        public UnexpectedDiscoveryProblem(String message) {
-            super(message);
-        }
-    }
-
-
-    static class RemoteAPDetails {
-        private final String apName;
-
-        RemoteAPDetails(String apName) {
-            this.apName = apName;
-        }
-
-        public String getApName() {
-            return apName;
         }
     }
 }

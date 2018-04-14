@@ -15,9 +15,12 @@ import android.support.annotation.NonNull;
 import android.support.annotation.WorkerThread;
 
 import com.siia.commons.core.android.AndroidUtils;
+import com.siia.commons.core.concurrency.ConcurrencyUtils;
 import com.siia.commons.core.constants.TimeConstant;
 import com.siia.commons.core.log.Logcat;
 import com.siia.commons.core.timing.StopWatch;
+
+import org.reactivestreams.Subscriber;
 
 import java.util.concurrent.CountDownLatch;
 
@@ -34,7 +37,7 @@ import static com.siia.commons.core.concurrency.ConcurrencyUtils.tryAction;
  * Copyright Siia 2018
  */
 @SuppressLint("MissingPermission")
-public class BluetoothBroadcaster extends AdvertiseCallback {
+public class BluetoothBroadcaster {
 
     private static final String TAG = Logcat.getTag();
     private static final int RETRY_COUNT = 3;
@@ -42,14 +45,16 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
     private final Context ctx;
     private final AndroidUtils androidUtils;
     private final StopWatch stopWatch;
+    private BTAdvertisingCallback advertisingCallback;
     private CountDownLatch deviceNameLatch;
     private CountDownLatch btEnabledLatch;
     private CountDownLatch btDisableLatch;
+    private CountDownLatch stopAdvertisingLatch;
     private BluetoothStateReceiver receiver;
     private String deviceNameToBroadcast;
 
     @Inject
-    public BluetoothBroadcaster(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch) {
+    BluetoothBroadcaster(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch) {
         this.bluetoothAdapter = bluetoothAdapter;
         this.ctx = ctx;
         this.androidUtils = androidUtils;
@@ -59,7 +64,7 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
 
 
     @WorkerThread
-    public void beginBroadcast(@NonNull String deviceName) {
+    public void beginBroadcast(@NonNull String deviceName, @NonNull Subscriber<? super PostmanBroadcastEvent> subscriber) {
         deviceNameToBroadcast = deviceName;
         //TODO handle error scenarios
 
@@ -71,8 +76,8 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
             boolean result = bluetoothAdapter.disable();
 
 
-            if(!result) {
-                stopWatch.stopAndPrintMillis("Disable BT");
+            if (!result) {
+                stopWatch.stopAndPrintMillis("Disable BT Failed");
                 Logcat.w(TAG, "Could not disable BT, continuing anyway");
             } else {
                 awaitLatch(btDisableLatch, TimeConstant.NETWORK_LATCH_TIME_WAIT);
@@ -80,24 +85,16 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
             }
         }
 
-
-        if (bluetoothAdapter.isEnabled()) {
-            Logcat.e(TAG, "BT is still enabled");
-            androidUtils.unregisterReceiverQuietly(receiver);
-            return;
+        if (!bluetoothAdapter.isEnabled()) {
+            Logcat.d(TAG, "Bluetooth disabled, enabling");
+            btEnabledLatch = new CountDownLatch(1);
+            stopWatch.start();
+            bluetoothAdapter.enable();
+            awaitLatch(btEnabledLatch, TimeConstant.NETWORK_LATCH_TIME_WAIT);
+            stopWatch.stopAndPrintSeconds("Enable BT");
         }
 
-        Logcat.d(TAG, "Bluetooth disabled, enabling");
-
-        btEnabledLatch = new CountDownLatch(1);
-        stopWatch.start();
-        bluetoothAdapter.enable();
-        awaitLatch(btEnabledLatch, TimeConstant.NETWORK_LATCH_TIME_WAIT);
-        stopWatch.stopAndPrintSeconds("Enable BT");
-
-        if (bluetoothAdapter.isEnabled()) {
-            Logcat.d(TAG, "BT Enabled");
-        } else {
+        if (!bluetoothAdapter.isEnabled()) {
             Logcat.e(TAG, "BT could not be enabled");
             androidUtils.unregisterReceiverQuietly(receiver);
             return;
@@ -110,25 +107,39 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
          */
         sleepQuietly(TimeConstant.RACE_CONDITION_WAIT_2S);
 
-        registerLEService();
+        this.stopAdvertisingLatch = new CountDownLatch(1);
+        if(registerLEService(subscriber)) {
+            ConcurrencyUtils.awaitLatch(stopAdvertisingLatch);
+            Logcat.v(TAG, "Stop advertising latch done");
+        }
+        //Stop Broadcast will be called from parent once we get here
     }
 
 
     @AnyThread
     public void stopBroadcast() {
         androidUtils.unregisterReceiverQuietly(receiver);
-        bluetoothAdapter.getBluetoothLeAdvertiser().stopAdvertising(this);
+        BluetoothLeAdvertiser bluetoothLeAdvertiser = bluetoothAdapter.getBluetoothLeAdvertiser();
 
-        if(btEnabledLatch != null) {
+        if (bluetoothLeAdvertiser != null && advertisingCallback != null) {
+            bluetoothLeAdvertiser.stopAdvertising(advertisingCallback);
+        }
+
+        if (btEnabledLatch != null) {
             btEnabledLatch.countDown();
         }
 
-        if(btDisableLatch != null) {
+        if (btDisableLatch != null) {
             btDisableLatch.countDown();
         }
 
-        if(deviceNameLatch != null) {
+        if (deviceNameLatch != null) {
             deviceNameLatch.countDown();
+        }
+
+        if (stopAdvertisingLatch != null) {
+            Logcat.v(TAG, "Counting down stop adv latch");
+            stopAdvertisingLatch.countDown();
         }
 
         if (bluetoothAdapter.isEnabled()) {
@@ -143,12 +154,14 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
         ctx.registerReceiver(receiver, filter);
     }
 
-    private void registerLEService() {
+    private boolean registerLEService(Subscriber<? super PostmanBroadcastEvent> subscriber) {
         deviceNameLatch = new CountDownLatch(1);
         stopWatch.start();
+
         if (!tryAction(() -> bluetoothAdapter.setName(deviceNameToBroadcast), TimeConstant.RETRY_DELAY, RETRY_COUNT)) {
             Logcat.e(TAG, "Device name cannot be set");
-            return;
+            subscriber.onError(new PostmanBroadcastException("Could not set BT Device Name"));
+            return false;
         }
 
         awaitLatch(deviceNameLatch, TimeConstant.RACE_CONDITION_WAIT_2S);
@@ -156,7 +169,8 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
 
         if (!bluetoothAdapter.getName().equals(deviceNameToBroadcast)) {
             Logcat.e(TAG, "BT Device name change Failed");
-            return;
+            subscriber.onError(new PostmanBroadcastException("Device name not as expected"));
+            return false;
         }
 
 
@@ -175,22 +189,54 @@ public class BluetoothBroadcaster extends AdvertiseCallback {
 
         //TODO handle error scenario
         stopWatch.start();
-        advertiser.startAdvertising(advertiseSettings, advertiseData, this);
-
+        advertisingCallback = new BTAdvertisingCallback(subscriber);
+        advertiser.startAdvertising(advertiseSettings, advertiseData, advertisingCallback);
+        return true;
     }
 
-    @Override
-    public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-        stopWatch.stopAndPrintSeconds("Start Advertising");
-        Logcat.d(TAG, "Registered advertising data successfully");
-        Logcat.v(TAG, settingsInEffect.toString());
-        Logcat.v(TAG, "DeviceName=%s", bluetoothAdapter.getName());
-    }
+    private class BTAdvertisingCallback extends AdvertiseCallback {
 
-    @Override
-    public void onStartFailure(int errorCode) {
-        stopWatch.stopAndPrintSeconds("Start Advertising");
-        Logcat.e(TAG, "Could not register advertising data %d", errorCode);
+        private final Subscriber<? super PostmanBroadcastEvent> subscriber;
+
+        BTAdvertisingCallback(Subscriber<? super PostmanBroadcastEvent> subscriber) {
+            this.subscriber = subscriber;
+        }
+
+        @Override
+        public void onStartSuccess(AdvertiseSettings settingsInEffect) {
+            stopWatch.stopAndPrintSeconds("Start Advertising");
+            Logcat.d(TAG, "Registered advertising data successfully");
+            Logcat.v(TAG, settingsInEffect.toString());
+            Logcat.v(TAG, "DeviceName=%s", bluetoothAdapter.getName());
+            subscriber.onNext(PostmanBroadcastEvent.broadcastStarted());
+        }
+
+        @SuppressLint("DefaultLocale")
+        @Override
+        public void onStartFailure(int errorCode) {
+            Logcat.e(TAG, "Start advertising failure=", translateErrorCode(errorCode));
+            stopWatch.stopAndPrintSeconds("Start Advertising Failure");
+            subscriber.onError(new PostmanBroadcastException(String.format("Could not begin BT Advertising errorCode=%s", translateErrorCode(errorCode))));
+            stopBroadcast();
+        }
+
+        private String translateErrorCode(int errorCode) {
+            switch (errorCode) {
+                case AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED:
+                    return "Already started";
+                case AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE:
+                    return "Data too large";
+                case ADVERTISE_FAILED_FEATURE_UNSUPPORTED:
+                    return "Feature Unsupported";
+                case ADVERTISE_FAILED_INTERNAL_ERROR:
+                    return "Internal Error";
+                case ADVERTISE_FAILED_TOO_MANY_ADVERTISERS:
+                    return "Too many advertisers";
+                default:
+                    return "Unknown";
+
+            }
+        }
     }
 
     private class BluetoothStateReceiver extends BroadcastReceiver {

@@ -21,8 +21,8 @@ import javax.inject.Provider;
 
 import io.reactivex.Scheduler;
 import io.reactivex.disposables.CompositeDisposable;
-import io.reactivex.schedulers.Schedulers;
-import io.reactivex.subjects.PublishSubject;
+import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.processors.PublishProcessor;
 
 import static com.siia.commons.core.log.Logcat.d;
 import static com.siia.commons.core.log.Logcat.v;
@@ -33,20 +33,20 @@ class ServerEventLoop {
 
     private ServerSocketChannel serverSocketChannel;
     private Selector clientJoinSelector;
+    private MessageQueueLoop messageRouter;
     private final InetSocketAddress bindAddress;
     private final Scheduler computation;
     private final Provider<PostmanMessage> messageProvider;
-    private final MessageQueueLoop messageRouter;
-    private final PublishSubject<ServerEvent> serverEventStream;
+    private final FlowableProcessor<ServerEvent> serverEventStream;
     private final CompositeDisposable disposables;
+    private final Scheduler io;
 
-    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider) {
+    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler io) {
         this.bindAddress = bindAddress;
         this.computation = computation;
         this.messageProvider = messageProvider;
-        this.messageRouter = new MessageQueueLoop();
-        serverEventStream = PublishSubject.create();
-
+        this.io = io;
+        serverEventStream = PublishProcessor.<ServerEvent>create().toSerialized();
         disposables = new CompositeDisposable();
     }
 
@@ -64,14 +64,15 @@ class ServerEventLoop {
     }
 
 
-    PublishSubject<ServerEvent> getServerEventsStream() {
+    FlowableProcessor<ServerEvent> getServerEventsStream() {
         return serverEventStream;
 
     }
 
     void startLooping() {
-
-        disposables.add(messageRouter.messageRouterEventStream()
+        Logcat.d(TAG, "Intialising Server Event Loop");
+        messageRouter = new MessageQueueLoop(io, computation);
+        disposables.add(messageRouter.messageQueueEventsStream()
                 .observeOn(computation)
                 .subscribe(
                         this::handleMessageQueueEvent,
@@ -86,9 +87,14 @@ class ServerEventLoop {
                 ));
 
 
-        disposables.add(messageRouter.messageRouterEventStream().observeOn(Schedulers.io())
-                .filter(messageQueueEvent -> messageQueueEvent.type().equals(MessageQueueEvent.Type.READY))
+        disposables.add(messageRouter.messageQueueEventsStream()
                 .doOnSubscribe(disposable -> messageRouter.startMessageQueueLoop())
+                .observeOn(io)
+                .filter(messageQueueEvent -> {
+                    boolean isReady = messageQueueEvent.type().equals(MessageQueueEvent.Type.READY);
+                    Logcat.result_v(TAG, "isReady", isReady);
+                    return isReady;
+                })
                 .subscribe(
                         this::startListeningForClients,
                         this::handleMessageQueueError));
@@ -124,6 +130,7 @@ class ServerEventLoop {
     }
 
     private void startListeningForClients(@SuppressWarnings("unused") MessageQueueEvent messageQueueEvent) {
+        Logcat.d(TAG, "Beginning to listen to clients");
         if (!initialiseServerSocket()) {
             serverEventStream.onError(new SocketException("Could not initialise server socket"));
             return;

@@ -5,8 +5,8 @@ import android.util.Log;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
-import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.Connection;
+import com.siia.postman.server.PostmanMessage;
 
 import java.io.IOException;
 import java.nio.channels.ClosedChannelException;
@@ -23,10 +23,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import io.reactivex.Completable;
-import io.reactivex.schedulers.Schedulers;
+import io.reactivex.Scheduler;
 import io.reactivex.subjects.PublishSubject;
 
-import static com.siia.commons.core.check.Check.checkState;
 import static com.siia.commons.core.log.Logcat.v;
 
 
@@ -34,13 +33,17 @@ class MessageQueueLoop {
     private static final String TAG = Logcat.getTag();
 
     private Selector readWriteSelector;
+    private final Scheduler computation;
     private final ConcurrentMap<SelectionKey, NIOConnection> connectedClientsBySelectionKey;
     private final ConcurrentMap<Connection, BlockingQueue<PostmanMessage>> messageQueueForEachClient;
     private final List<NIOConnection> clientsToRegister;
+    private final Scheduler io;
     private PublishSubject<MessageQueueEvent> messageRouterEventStream;
 
     @SuppressLint("UseSparseArrays")
-    MessageQueueLoop() {
+    MessageQueueLoop(Scheduler io, Scheduler computation) {
+        this.io = io;
+        this.computation = computation;
         this.messageRouterEventStream = PublishSubject.create();
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
         this.messageQueueForEachClient = new ConcurrentHashMap<>();
@@ -124,12 +127,15 @@ class MessageQueueLoop {
      * OnError - Called when loop exits due unexpected error
      * onComplete - Called after a graceful shutdown
      */
-
     void startMessageQueueLoop() {
-        checkState(!isRunning(), "Message Queue already running");
+        if(isRunning()) {
+            Logcat.w(TAG, "Message Queue already running");
+            return;
+        }
 
+        Logcat.d(TAG, "Initialising message loop");
         Completable.create(completableEmitter -> {
-
+            Logcat.v(TAG, "At start Message Queue");
             try {
                 readWriteSelector = Selector.open();
             } catch (IOException e) {
@@ -137,6 +143,7 @@ class MessageQueueLoop {
                 completableEmitter.onError(e);
                 return;
             }
+            Logcat.v(TAG, "Firing ready event");
             messageRouterEventStream.onNext(MessageQueueEvent.ready());
             while (true) {
                 int channelsReady = readWriteSelector.select();
@@ -157,8 +164,8 @@ class MessageQueueLoop {
             Logcat.d(TAG, "Message Queue Loop Exited");
             completableEmitter.onComplete();
 
-        }).subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.computation())
+        }).subscribeOn(io)
+                .observeOn(computation)
                 .subscribe(
                         () -> {
                             Logcat.i(TAG, "Message queue loop completed");
@@ -272,8 +279,7 @@ class MessageQueueLoop {
         readWriteSelector.wakeup();
     }
 
-    PublishSubject<MessageQueueEvent> messageRouterEventStream() {
+    PublishSubject<MessageQueueEvent> messageQueueEventsStream() {
         return messageRouterEventStream;
     }
-
 }

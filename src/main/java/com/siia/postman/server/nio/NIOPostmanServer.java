@@ -17,43 +17,41 @@ import java.util.concurrent.ConcurrentMap;
 
 import javax.inject.Provider;
 
+import io.reactivex.Scheduler;
 import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.disposables.Disposable;
-import io.reactivex.schedulers.Schedulers;
-import io.reactivex.subjects.PublishSubject;
-
-import static com.siia.commons.core.check.Check.checkState;
+import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.processors.PublishProcessor;
 
 
 public class NIOPostmanServer implements PostmanServer {
     private static final String TAG = Logcat.getTag();
 
     private ServerEventLoop serverEventLoop;
-    private PublishSubject<ServerEvent> serverEventsStream;
+    private FlowableProcessor<ServerEvent> serverEventsStream;
     private final ConcurrentMap<UUID, Connection> clients;
     private final Provider<PostmanMessage> messageProvider;
     private final CompositeDisposable disposables;
+    private final Scheduler computation;
+    private final Scheduler io;
 
-    public NIOPostmanServer(Provider<PostmanMessage> messageProvider) {
+    public NIOPostmanServer(Provider<PostmanMessage> messageProvider, Scheduler computation, Scheduler io) {
         this.messageProvider = messageProvider;
+        this.computation = computation;
+        this.io = io;
         this.disposables = new CompositeDisposable();
-        this.serverEventsStream = PublishSubject.create();
         this.clients = new ConcurrentHashMap<>();
+        this.serverEventsStream = PublishProcessor.<ServerEvent>create().toSerialized();
     }
 
     @Override
-    public PublishSubject<ServerEvent> getServerEventsStream() {
+    public FlowableProcessor<ServerEvent> getServerEventsStream() {
         return serverEventsStream;
     }
 
     @Override
-    public void broadcastMessage(PostmanMessage msg) {
+    public void broadcastMessage(@NonNull MessageLite msg) {
         clients.values().stream().parallel().forEach(client -> serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), client));
-    }
-
-    @Override
-    public void broadcastMessage(MessageLite msg) {
-        broadcastMessage(new PostmanMessage(msg));
     }
 
     @Override
@@ -80,7 +78,7 @@ public class NIOPostmanServer implements PostmanServer {
     @Override
     public void sendMessage(MessageLite msg, UUID uuid) {
         Connection connection = clients.get(uuid);
-        if(connection == null) {
+        if (connection == null) {
             Logcat.w(TAG, "Client %s does not seem to be connected, not sending message", uuid.toString());
             return;
         }
@@ -89,12 +87,16 @@ public class NIOPostmanServer implements PostmanServer {
 
     @Override
     public void serverStart(@NonNull InetSocketAddress bindAddress) {
-        checkState(!isRunning(), "Server is already running");
-        serverEventLoop = new ServerEventLoop(bindAddress, Schedulers.computation(), messageProvider);
+        if (isRunning()) {
+            Logcat.w(TAG, "Server already running");
+            return;
+        }
 
+        Logcat.d(TAG, "Starting postman server");
+        serverEventLoop = new ServerEventLoop(bindAddress, computation, messageProvider, io);
 
         Disposable eventDisposable = serverEventLoop.getServerEventsStream()
-                .observeOn(Schedulers.computation())
+                .observeOn(computation)
                 .filter(serverEvent -> !serverEvent.isNewMessage())
                 .subscribe(
                         event -> {
@@ -121,17 +123,29 @@ public class NIOPostmanServer implements PostmanServer {
 
                         },
                         //TODO Separate out the internal server error streams from event streams so that we can distinguish and handle them seprately
-                        //i.e clients who susbscribe to the outgoing event stream can handle errors. Right now they can because we send internal server errors
+                        //i.e clients who susbscribe to the outgoing event stream can handle errors when they should be hidden from them.
+                        // Right now they can because we send internal server errors
                         //Down stream
                         error -> serverEventsStream.onError(new UnexpectedServerShutdownException(error)),
                         () -> serverEventsStream.onComplete());
 
 
         Disposable newMessageDisposable = serverEventLoop.getServerEventsStream()
-                .observeOn(Schedulers.computation())
-                .filter(serverEvent -> serverEvent.isNewMessage() && clients.containsKey(serverEvent.connectionId()))
+                .observeOn(computation)
+                .filter(serverEvent -> {
+                    boolean shouldDeliver = serverEvent.isNewMessage() && clients.containsKey(serverEvent.connectionId());
+                    Logcat.v(TAG, "Should deliver=%b", shouldDeliver);
+                    return shouldDeliver;
+                })
                 .subscribe(
-                        event -> serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()))
+                        event -> {
+                            Logcat.v(TAG, "hasSubscriber=%b isComplete=%b hasThrowable=%b",
+                                    serverEventsStream.hasSubscribers(),
+                                    serverEventsStream.hasComplete(),
+                                    serverEventsStream.hasThrowable());
+
+                            serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
+                        }
                 );
 
         disposables.add(newMessageDisposable);
@@ -144,10 +158,11 @@ public class NIOPostmanServer implements PostmanServer {
     @Override
     @WorkerThread
     public void stopServer() {
-        if(!isRunning()) {
+        if (!isRunning()) {
             Logcat.w(TAG, "Server is not running");
             return;
         }
+
         disposables.clear();
 
         if (serverEventLoop != null) {
@@ -160,7 +175,6 @@ public class NIOPostmanServer implements PostmanServer {
     public boolean isRunning() {
         return serverEventLoop != null
                 && serverEventLoop.isRunning();
-
     }
 
 

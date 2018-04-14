@@ -5,15 +5,14 @@ import android.support.annotation.NonNull;
 
 import com.siia.commons.core.log.Logcat;
 
+import java.net.InetAddress;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import javax.inject.Inject;
 import javax.inject.Named;
 
+import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
-import io.reactivex.subjects.PublishSubject;
 
 /**
  * Copyright Siia 2018
@@ -23,86 +22,79 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
 
     private static final String TAG = Logcat.getTag();
 
-    //TODO move this into properties
-    // xxxxxxxx-0000-1000-8000-00805F9B34FB
-    private static final Pattern AP_DETAILS_PATTERN = Pattern.compile("^.{4}(DIRECT.+)\\|(.+)$");
-
-    private final PublishSubject<PostmanDiscoveryEvent> oldEventStream;
     private final BluetoothBroadcaster bluetoothBroadcaster;
     private final BluetoothDiscoverer bluetoothDiscoverer;
-    private AtomicBoolean isBroadcasting;
-    private AtomicBoolean isDiscovering;
-    private Scheduler computation;
+    private final AtomicBoolean isBroadcasting;
+    private final AtomicBoolean isDiscovering;
+    private final Scheduler io;
 
 
     @Inject
     public BluetoothPostmanDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster,
                                             BluetoothDiscoverer bluetoothDiscoverer,
-                                            @Named("computation") Scheduler computation) {
+                                            @Named("io") Scheduler io) {
         this.bluetoothBroadcaster = bluetoothBroadcaster;
         this.bluetoothDiscoverer = bluetoothDiscoverer;
-        this.computation = computation;
-        this.oldEventStream = PublishSubject.create();
-        isBroadcasting = new AtomicBoolean(false);
-        isDiscovering = new AtomicBoolean(false);
+        this.io = io;
+        this.isBroadcasting = new AtomicBoolean(false);
+        this.isDiscovering = new AtomicBoolean(false);
     }
 
-    //TODO what if broadcasting fails?
     @Override
-    public void startServiceBroadcast(@NonNull String serviceName, int port, @NonNull String hostAddress) {
-        if (isBroadcasting.compareAndSet(false, true)) {
-            Logcat.i(TAG, "Starting service broadcast");
-            Logcat.v(TAG, "advertisingData=%s", serviceName);
-            bluetoothBroadcaster.beginBroadcast(serviceName);
-        } else {
-            Logcat.w(TAG, "Already broadcasting");
-        }
+    public Flowable<PostmanBroadcastEvent> startServiceBroadcast(@NonNull String serviceName, int port, @NonNull InetAddress hostAddress) {
 
+        return Flowable.<PostmanBroadcastEvent>fromPublisher(subsciber -> {
+            if(isBroadcasting.compareAndSet(false, true)) {
+                Logcat.i(TAG, "Starting service broadcast");
+                Logcat.v(TAG, "advertisingData=%s", serviceName);
+                try {
+                    /**
+                     * We are missing an oncomplete call as the begin broadcast locks
+                     * and waits till either an error or a stop call from the client.
+                     * Should not be a problem though
+                     */
+                    bluetoothBroadcaster.beginBroadcast(serviceName, subsciber);
+                } catch(Throwable e) {
+                    Logcat.e(TAG, "Problem while beginning broadcast", e);
+                    subsciber.onError(e);
+                } finally {
+                    stopServiceBroadcast();
+                }
+            } else {
+                Logcat.w(TAG, "Already broadcasting");
+                subsciber.onNext(PostmanBroadcastEvent.alreadyBroadcasting());
+                subsciber.onComplete();
+            }
+        }).subscribeOn(io);
     }
 
     @Override
     public void stopServiceBroadcast() {
         if (isBroadcasting.compareAndSet(true, false)) {
+            Logcat.v(TAG, "Stopping service broadcast");
             bluetoothBroadcaster.stopBroadcast();
         }
     }
 
-    @Override
-    public boolean isBroadcasting() {
-        return isBroadcasting.get();
-    }
 
     @Override
-    public PublishSubject<PostmanDiscoveryEvent> getDiscoveryEventStream() {
-        return oldEventStream;
-    }
+    public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName) {
 
-    @Override
-    public void discoverService(@NonNull String serviceName) {
-        if (isDiscovering.compareAndSet(false, true)) {
-            Logcat.d(TAG, "Beginning search for %s", serviceName);
-            bluetoothDiscoverer.findService(serviceName)
-                    .observeOn(computation)
-                    .subscribe(remoteAPDetails -> {
-                                Logcat.d(TAG, "Found remote AP");
-                                String apDetails = remoteAPDetails.getApName();
-                                Logcat.v(TAG, apDetails);
-                                Matcher matcher = AP_DETAILS_PATTERN.matcher(apDetails);
+        return Flowable.<PostmanDiscoveryEvent>fromPublisher(subscriber -> {
+            if (isDiscovering.compareAndSet(false, true)) {
+                try {
+                    bluetoothDiscoverer.findService(serviceName, subscriber);
+                } catch(Throwable e) {
+                    subscriber.onError(e);
+                } finally {
+                    isDiscovering.set(false);
+                }
 
-                                if (matcher.matches() && matcher.groupCount() == 2) {
-                                    String apName = matcher.group(1);
-                                    String sharedKey = matcher.group(2);
-                                    oldEventStream.onNext(PostmanDiscoveryEvent.foundAP(apName, sharedKey));
-                                    stopDiscovery();
-                                } else {
-                                    Logcat.w(TAG, "Discoverer found details but does not match");
-                                    bluetoothDiscoverer.continueDiscovery(serviceName);
-                                }
-                            },
-                            error -> Logcat.e(TAG, "Problem searching for service", error));
-        } else {
-            Logcat.w(TAG, "Already discovering");
-        }
+            } else {
+                subscriber.onNext(PostmanDiscoveryEvent.alreadyDiscovering());
+                subscriber.onComplete();
+            }
+        }).subscribeOn(io);
 
     }
 

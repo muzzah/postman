@@ -90,4 +90,12 @@ public class ServerEvent {
     public static ServerEvent newMessage(PostmanMessage msg, Connection client) {
         return new ServerEvent(Type.NEW_MESSAGE).attribute(Attribute.MESSAGE, msg).attribute(Attribute.CLIENT, client);
     }
+
+    @Override
+    public String toString() {
+        return "ServerEvent{" +
+                "type=" + type +
+                ", attributes=" + attributes +
+                '}';
+    }
 }

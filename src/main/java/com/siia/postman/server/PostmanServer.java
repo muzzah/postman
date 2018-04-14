@@ -11,7 +11,7 @@ import java.util.UUID;
 
 import javax.inject.Singleton;
 
-import io.reactivex.subjects.PublishSubject;
+import io.reactivex.processors.FlowableProcessor;
 
 
 @Singleton
@@ -28,10 +28,8 @@ public interface PostmanServer {
     boolean isRunning();
 
     @AnyThread
-    PublishSubject<ServerEvent> getServerEventsStream();
+    FlowableProcessor<ServerEvent> getServerEventsStream();
 
-    @AnyThread
-    void broadcastMessage(PostmanMessage msg);
     @AnyThread
     void broadcastMessage(MessageLite msg);
 

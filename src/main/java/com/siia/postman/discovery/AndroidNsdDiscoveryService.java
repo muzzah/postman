@@ -1,67 +1,90 @@
 package com.siia.postman.discovery;
 
+import android.annotation.SuppressLint;
 import android.net.nsd.NsdManager;
+import android.net.nsd.NsdManager.RegistrationListener;
 import android.net.nsd.NsdServiceInfo;
 import android.support.annotation.NonNull;
 import android.util.Log;
 
 import com.siia.commons.core.log.Logcat;
 
-import java.net.Inet4Address;
-import java.net.UnknownHostException;
+import org.reactivestreams.Subscriber;
+
+import java.net.InetAddress;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import io.reactivex.Completable;
-import io.reactivex.schedulers.Schedulers;
-import io.reactivex.subjects.PublishSubject;
-
-import static com.siia.commons.core.check.Check.checkState;
+import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
 
 public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
+    private static final String SERVICE_TYPE = "_siia._tcp.";
+
     private static final String TAG = Logcat.getTag();
 
     private final NsdManager nsdManager;
-    private final NsdManager.RegistrationListener serviceRegistrationListener;
     private final AtomicBoolean broadcastActive;
-    private PublishSubject<PostmanDiscoveryEvent> discoverEventsStream;
-    private ServiceDiscoveryListener listener;
+    private final AtomicBoolean discoveryActive;
+    private final Scheduler io;
+    private RegistrationListener serviceRegistrationListener;
+    private ServiceDiscoveryListener serviceDiscoveryListener;
+
+    private CountDownLatch broadcastLatch;
+    private CountDownLatch discoveryLatch;
 
 
-    public AndroidNsdDiscoveryService(NsdManager ndsManager) {
+    public AndroidNsdDiscoveryService(NsdManager ndsManager, Scheduler io) {
         this.nsdManager = ndsManager;
-        this.serviceRegistrationListener = new ServiceRegistrationListener();
+        this.io = io;
         this.broadcastActive = new AtomicBoolean(false);
+        this.discoveryActive = new AtomicBoolean(false);
     }
 
-    //TODO what if broadcasting fails?
     @Override
-    public void startServiceBroadcast(@NonNull String serviceName, int port, @NonNull String hostAddress) {
-        checkState(!isBroadcasting(), "Already broadcasting service");
-        if (broadcastActive.compareAndSet(false, true)) {
-            NsdServiceInfo postmanServiceInfo = new NsdServiceInfo();
+    public Flowable<PostmanBroadcastEvent> startServiceBroadcast(@NonNull String serviceName, int port, @NonNull InetAddress hostAddress) {
+        return Flowable.<PostmanBroadcastEvent>fromPublisher(subscriber -> {
 
-            // The name is subject to change based on conflicts
-            // with other services advertised on the same network.
-            postmanServiceInfo.setServiceName(serviceName);
-            postmanServiceInfo.setServiceType(SERVICE_TYPE);
-            try {
-                postmanServiceInfo.setHost(Inet4Address.getByName(hostAddress));
-            } catch (UnknownHostException e) {
-                Logcat.e(TAG, "Cannot start service discovery as host address seems incorrect", e);
-                return;
+            if (broadcastActive.compareAndSet(false, true)) {
+                serviceRegistrationListener = new ServiceRegistrationListener(subscriber);
+                NsdServiceInfo postmanServiceInfo = new NsdServiceInfo();
+
+                // The name is subject to change based on conflicts
+                // with other services advertised on the same network.
+                postmanServiceInfo.setServiceName(serviceName);
+                postmanServiceInfo.setServiceType(SERVICE_TYPE);
+                postmanServiceInfo.setHost(hostAddress);
+                postmanServiceInfo.setPort(port);
+
+                Logcat.v(TAG, "Broadcasting %s", postmanServiceInfo.toString());
+
+                try {
+                    broadcastLatch = new CountDownLatch(1);
+                    nsdManager.registerService(
+                            postmanServiceInfo, NsdManager.PROTOCOL_DNS_SD, serviceRegistrationListener);
+                    broadcastLatch.await();
+                } catch (Throwable e) {
+                    subscriber.onError(e);
+
+                } finally {
+                    broadcastActive.set(false);
+                }
+
+            } else {
+                Logcat.w(TAG, "Already broadcasting service");
+                subscriber.onNext(PostmanBroadcastEvent.alreadyBroadcasting());
+                subscriber.onComplete();
             }
-            postmanServiceInfo.setPort(port);
+        }).subscribeOn(io);
 
-            nsdManager.registerService(
-                    postmanServiceInfo, NsdManager.PROTOCOL_DNS_SD, serviceRegistrationListener);
-        }
+
     }
 
 
     @Override
     public void stopServiceBroadcast() {
-        checkState(isBroadcasting(), "Not broadcasting service");
         Log.d(TAG, "Stopping Service Broadcast");
+        broadcastLatch.countDown();
         try {
             nsdManager.unregisterService(serviceRegistrationListener);
         } catch (IllegalArgumentException e) {
@@ -69,96 +92,143 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
         }
     }
 
-    @Override
-    public PublishSubject<PostmanDiscoveryEvent> getDiscoveryEventStream() {
-        discoverEventsStream = PublishSubject.create();
-        return discoverEventsStream;
+    private class ServiceRegistrationListener implements RegistrationListener {
+        private final Subscriber<? super PostmanBroadcastEvent> subscriber;
+
+        ServiceRegistrationListener(Subscriber<? super PostmanBroadcastEvent> subscriber) {
+            this.subscriber = subscriber;
+        }
+
+        @Override
+        public void onRegistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
+            Logcat.e(TAG, "Siia Service registration failed (%s)", translateErrorCode(errorCode));
+            subscriber.onError(new PostmanBroadcastException(translateErrorCode(errorCode)));
+            stopServiceBroadcast();
+
+        }
+
+        @Override
+        public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
+            Logcat.e(TAG, "Siia Service deregistration failed (%d)", errorCode);
+            broadcastLatch.countDown();
+        }
+
+        @Override
+        public void onServiceRegistered(NsdServiceInfo serviceInfo) {
+            Logcat.i(TAG, "Siia Service registration succeeded");
+            subscriber.onNext(PostmanBroadcastEvent.broadcastStarted());
+        }
+
+        @Override
+        public void onServiceUnregistered(NsdServiceInfo serviceInfo) {
+            Logcat.d(TAG, "Siia Service unregistered");
+            if(broadcastActive.get()) {
+                subscriber.onNext(PostmanBroadcastEvent.broadcastStopped());
+                subscriber.onComplete();
+                stopServiceBroadcast();
+            }
+        }
+
     }
 
-    @Override
-    public boolean isBroadcasting() {
-        return broadcastActive.get();
-    }
-
 
     @Override
-    public void discoverService(@NonNull String serviceName) {
-        Completable.fromAction(
-                () -> {
-                    listener = new ServiceDiscoveryListener(nsdManager, discoverEventsStream);
-                    //TODO stop discovery once we find the host, reactive once we need to
-                    nsdManager.discoverServices(
-                            SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener);
+    public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName) {
+        return Flowable.<PostmanDiscoveryEvent>fromPublisher(
+                subscriber -> {
+
+                    if (discoveryActive.compareAndSet(false, true)) {
+                        Logcat.d(TAG, "Searching for service %s", serviceName);
+                        serviceDiscoveryListener = new ServiceDiscoveryListener(subscriber);
+
+                        try {
+                            discoveryLatch = new CountDownLatch(1);
+                            nsdManager.discoverServices(
+                                    SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, serviceDiscoveryListener);
+                            discoveryLatch.await();
+                        } catch (Exception e) {
+                            subscriber.onError(e);
+                        } finally {
+                            discoveryActive.set(false);
+                        }
+
+                    } else {
+
+                        Logcat.w(TAG, "Already discovering");
+                        subscriber.onNext(PostmanDiscoveryEvent.alreadyDiscovering());
+                        subscriber.onComplete();
+                    }
 
                 })
-                .subscribeOn(Schedulers.io())
-                .observeOn(Schedulers.computation())
-                .subscribe(
-                        () -> {
-                        },
-                        error -> discoverEventsStream.onError(error)
-                );
+                .subscribeOn(io);
 
     }
 
     @Override
     public void stopDiscovery() {
         Logcat.i(TAG, "Stopping Siia Service Discovery");
+        discoveryLatch.countDown();
         try {
-            nsdManager.stopServiceDiscovery(listener);
-        } catch (Exception error){
+            nsdManager.stopServiceDiscovery(serviceDiscoveryListener);
+        } catch (Exception error) {
             Log.w(TAG, "Error when stopping discovery", error);
         }
     }
 
 
-    private static class ServiceDiscoveryListener implements NsdManager.DiscoveryListener {
+
+    private class ServiceDiscoveryListener implements NsdManager.DiscoveryListener {
 
 
-        private NsdManager nsdManager;
-        private PublishSubject<PostmanDiscoveryEvent> eventStream;
+        private final Subscriber<? super PostmanDiscoveryEvent> subscriber;
 
-        ServiceDiscoveryListener(NsdManager nsdManager, PublishSubject<PostmanDiscoveryEvent> eventStream) {
-            this.nsdManager = nsdManager;
-            this.eventStream = eventStream;
+        ServiceDiscoveryListener(Subscriber<? super PostmanDiscoveryEvent> subscriber) {
+            this.subscriber = subscriber;
         }
 
         @Override
         public void onStartDiscoveryFailed(String serviceType, int errorCode) {
             Logcat.w(TAG, "Service discovery (start) failed (%d)", errorCode);
-            eventStream.onNext(PostmanDiscoveryEvent.notFound());
-            eventStream.onComplete();
+            subscriber.onError(new PostmanBroadcastException(translateErrorCode(errorCode)));
+            stopDiscovery();
         }
 
         @Override
         public void onStopDiscoveryFailed(String serviceType, int errorCode) {
-            Logcat.w(TAG, "Service discovery failed (%d)", errorCode);
-            eventStream.onNext(PostmanDiscoveryEvent.notFound());
-            eventStream.onComplete();
+            Logcat.w(TAG, "Stop Service discovery failed (%d)", errorCode);
         }
 
         @Override
         public void onDiscoveryStarted(String serviceType) {
-            Logcat.i(TAG, "Started discovery for %s", serviceType);
-            eventStream.onNext(PostmanDiscoveryEvent.started());
+            Logcat.d(TAG, "Started discovery for %s", serviceType);
+            subscriber.onNext(PostmanDiscoveryEvent.started());
         }
 
         @Override
         public void onDiscoveryStopped(String serviceType) {
-            Logcat.i(TAG, "Stopped discovery for %s", serviceType);
-            eventStream.onComplete();
+            Logcat.d(TAG, "Stopped discovery for %s", serviceType);
+            if(discoveryActive.get()) {
+                subscriber.onNext(PostmanDiscoveryEvent.discoveryStopped());
+                subscriber.onComplete();
+                stopDiscovery();
+            }
         }
 
         @Override
         public void onServiceFound(NsdServiceInfo serviceInfo) {
-            Logcat.i(TAG, "Siia Service Found");
-            nsdManager.resolveService(serviceInfo, new ServiceResolutionHandler(eventStream));
+            Logcat.d(TAG, "Siia Service Found");
+            try {
+                nsdManager.resolveService(serviceInfo, new ServiceResolutionHandler(subscriber));
+            } catch(Exception e) {
+                subscriber.onError(e);
+                stopDiscovery();
+            }
         }
 
         @Override
         public void onServiceLost(NsdServiceInfo serviceInfo) {
             Logcat.w(TAG, "Service Lost");
-            eventStream.onNext(PostmanDiscoveryEvent.notFound());
+            subscriber.onNext(PostmanDiscoveryEvent.lost());
         }
 
 
@@ -167,19 +237,18 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
     //Service Resolution
     private static class ServiceResolutionHandler implements NsdManager.ResolveListener {
 
+        private final Subscriber<? super PostmanDiscoveryEvent> subscriber;
 
-        private final PublishSubject<PostmanDiscoveryEvent> eventStream;
-
-        ServiceResolutionHandler(PublishSubject<PostmanDiscoveryEvent> eventStream) {
-            this.eventStream = eventStream;
+        ServiceResolutionHandler(Subscriber<? super PostmanDiscoveryEvent> subscriber) {
+            this.subscriber = subscriber;
         }
 
         @Override
         public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {
             Logcat.e(TAG, "Siia Service Resolution Failed (%d)", errorCode);
-            eventStream.onNext(PostmanDiscoveryEvent.notFound());
         }
 
+        @SuppressLint("VisibleForTests")
         @Override
         public void onServiceResolved(NsdServiceInfo serviceInfo) {
             Logcat.i(TAG, "Service Resolution Succeeded");
@@ -188,37 +257,26 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
             Logcat.d(TAG, "Service Host Address : " + serviceInfo.getHost().getHostAddress());
             Logcat.d(TAG, "Service Host Name : " + serviceInfo.getHost().getHostName());
             Logcat.d(TAG, "Service Attributes : " + serviceInfo.getAttributes());
-            eventStream.onNext(PostmanDiscoveryEvent.found(serviceInfo.getHost(), serviceInfo.getPort()));
+            subscriber.onNext(new PostmanDiscoveryEvent(new InetAddressServiceDetails(serviceInfo.getHost(), serviceInfo.getPort())));
 
         }
 
     }
 
 
-    private class ServiceRegistrationListener implements NsdManager.RegistrationListener {
-        @Override
-        public void onRegistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
-            Logcat.e(TAG, "Siia Service registration failed (%d)", errorCode);
-            broadcastActive.getAndSet(false);
+
+    private String translateErrorCode(int code) {
+        switch (code) {
+            case NsdManager.FAILURE_INTERNAL_ERROR:
+                return "Internal NSD Error";
+            case NsdManager.FAILURE_ALREADY_ACTIVE:
+                return "Already broadcasting";
+            case NsdManager.FAILURE_MAX_LIMIT:
+                return "Max NSD service limit";
+            default:
+                return "Unknown";
         }
 
-        @Override
-        public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
-            Logcat.e(TAG, "Siia Service deregistration failed (%d)", errorCode);
-            broadcastActive.getAndSet(false);
-        }
-
-        @Override
-        public void onServiceRegistered(NsdServiceInfo serviceInfo) {
-            Logcat.i(TAG, "Siia Service registration succeeded");
-            broadcastActive.getAndSet(true);
-        }
-
-        @Override
-        public void onServiceUnregistered(NsdServiceInfo serviceInfo) {
-            Logcat.i(TAG, "Siia Service unregistered");
-            broadcastActive.getAndSet(false);
-        }
     }
 
 }

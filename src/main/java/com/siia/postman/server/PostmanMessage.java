@@ -115,8 +115,9 @@ public class PostmanMessage {
         if(isFull()) {
             try {
                 AbstractMessageLite protoObj = getProtoObj();
-                innerMessage = protoObj.getClass().getSimpleName();
+                innerMessage = protoObj.toString();
             } catch (Exception e) {
+                Logcat.e(TAG, "Error in toString", e);
                 innerMessage = e.getMessage();
             }
         }
