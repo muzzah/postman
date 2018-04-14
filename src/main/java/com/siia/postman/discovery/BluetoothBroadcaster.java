@@ -29,6 +29,7 @@ import javax.inject.Inject;
 import static com.siia.commons.core.concurrency.ConcurrencyUtils.awaitLatch;
 import static com.siia.commons.core.concurrency.ConcurrencyUtils.sleepQuietly;
 import static com.siia.commons.core.concurrency.ConcurrencyUtils.tryAction;
+import static java.util.Objects.nonNull;
 
 /**
  * Settings.Global.BLUETOOTH_DISCOVERABILITY exists to enable disable discoverability without user
@@ -247,7 +248,10 @@ public class BluetoothBroadcaster {
                 btEnabledLatch.countDown();
             } else if (bluetoothDisabled(intent)) {
                 Logcat.d(TAG, "Bluetooth disabled");
-                btDisableLatch.countDown();
+                //TODO had a situation where BT just disabled itself for no reason, handle it by re-enabling
+                if(nonNull(btDisableLatch)) {
+                    btDisableLatch.countDown();
+                }
             } else if (nameChanged(intent)) {
                 Logcat.d(TAG, "Device name changed %s", bluetoothAdapter.getName());
                 deviceNameLatch.countDown();
