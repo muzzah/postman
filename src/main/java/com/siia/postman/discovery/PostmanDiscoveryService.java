@@ -24,7 +24,7 @@ public interface PostmanDiscoveryService {
 
     void stopServiceBroadcast();
 
-    Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName);
+    Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName, @NonNull InetAddress addressToSearchOn);
 
     void stopDiscovery();
 }

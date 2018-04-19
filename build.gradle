@@ -98,6 +98,10 @@ dependencies {
     implementation "com.android.support:support-annotations:${project.supportAnnotationVersion}"
     implementation "com.google.dagger:dagger:$project.daggerVersion"
     implementation 'com.google.protobuf:protobuf-lite:3.0.0'
+    implementation "org.jmdns:jmdns:3.5.4"
+    //For JMDNS
+    implementation 'org.slf4j:slf4j-android:1.7.25'
+
 
 
     testImplementation 'junit:junit:4.12'

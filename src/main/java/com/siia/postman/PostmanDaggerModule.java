@@ -1,13 +1,14 @@
 package com.siia.postman;
 
+import android.net.ConnectivityManager;
 import android.net.nsd.NsdManager;
 
 import com.siia.commons.core.android.AndroidDaggerModule;
 import com.siia.commons.core.rx.SchedulersModule;
-import com.siia.postman.discovery.AndroidNsdDiscoveryService;
 import com.siia.postman.discovery.BluetoothBroadcaster;
 import com.siia.postman.discovery.BluetoothDiscoverer;
 import com.siia.postman.discovery.BluetoothPostmanDiscoveryService;
+import com.siia.postman.discovery.BonjourDiscoveryService;
 import com.siia.postman.discovery.PostmanDiscoveryService;
 import com.siia.postman.server.PostmanClient;
 import com.siia.postman.server.PostmanMessage;
@@ -29,21 +30,21 @@ class PostmanDaggerModule {
     PostmanServer postmanServer(Provider<PostmanMessage> messageProvider,
                                 @Named("computation") Scheduler computation,
                                 @Named("new") Scheduler newThreadScheduler,
-                                @Named("io") Scheduler io){
+                                @Named("io") Scheduler io) {
         return new NIOPostmanServer(messageProvider, computation, io, newThreadScheduler);
     }
 
     @Provides
-    @Named("nsd")
-    PostmanDiscoveryService nsdDiscoveryService(NsdManager nsdManager, @Named("io") Scheduler io){
-            return new AndroidNsdDiscoveryService(nsdManager, io);
+    @Named("network")
+    PostmanDiscoveryService nsdDiscoveryService(NsdManager nsdManager, @Named("io") Scheduler io, ConnectivityManager connectivityManager) {
+        return new BonjourDiscoveryService(io);
     }
 
     @Provides
     @Named("bt")
     PostmanDiscoveryService btDiscoveryService(BluetoothBroadcaster bluetoothBroadcaster,
                                                BluetoothDiscoverer bluetoothDiscoverer,
-                                               @Named("io") Scheduler io){
+                                               @Named("io") Scheduler io) {
         return new BluetoothPostmanDiscoveryService(bluetoothBroadcaster, bluetoothDiscoverer, io);
     }
 
@@ -51,7 +52,7 @@ class PostmanDaggerModule {
     PostmanClient providesPostmanClient(@Named("computation") Scheduler computation,
                                         @Named("io") Scheduler ioScheduler,
                                         @Named("new") Scheduler newThreadScheduler,
-                                        Provider<PostmanMessage> messageProvider){
+                                        Provider<PostmanMessage> messageProvider) {
         return new NIOPostmanClient(computation, messageProvider, ioScheduler, newThreadScheduler);
     }
 }

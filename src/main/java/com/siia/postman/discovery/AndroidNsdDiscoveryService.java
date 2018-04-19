@@ -7,6 +7,7 @@ import android.net.nsd.NsdServiceInfo;
 import android.support.annotation.NonNull;
 import android.util.Log;
 
+import com.siia.commons.core.constants.Constants;
 import com.siia.commons.core.log.Logcat;
 
 import org.reactivestreams.Subscriber;
@@ -19,7 +20,7 @@ import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
 
 public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
-    private static final String SERVICE_TYPE = "_siia._tcp.";
+
 
     private static final String TAG = Logcat.getTag();
 
@@ -52,7 +53,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
                 // The name is subject to change based on conflicts
                 // with other services advertised on the same network.
                 postmanServiceInfo.setServiceName(serviceName);
-                postmanServiceInfo.setServiceType(SERVICE_TYPE);
+                postmanServiceInfo.setServiceType(Constants.SERVICE_TYPE);
                 postmanServiceInfo.setHost(hostAddress);
                 postmanServiceInfo.setPort(port);
 
@@ -133,7 +134,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
 
 
     @Override
-    public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName) {
+    public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName, @NonNull InetAddress addressToSearchOn) {
         return Flowable.<PostmanDiscoveryEvent>fromPublisher(
                 subscriber -> {
 
@@ -144,7 +145,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
                         try {
                             discoveryLatch = new CountDownLatch(1);
                             nsdManager.discoverServices(
-                                    SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, serviceDiscoveryListener);
+                                    Constants.SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, serviceDiscoveryListener);
                             discoveryLatch.await();
                         } catch (Exception e) {
                             subscriber.onError(e);

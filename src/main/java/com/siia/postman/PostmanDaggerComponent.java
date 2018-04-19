@@ -15,7 +15,7 @@ public interface PostmanDaggerComponent {
 
     PostmanServer postmanServer();
     PostmanClient postmanClientProvider();
-    @Named("nsd")
+    @Named("network")
     PostmanDiscoveryService nsdDiscoveryService();
     @Named("bt")
     PostmanDiscoveryService btDiscoveryService();

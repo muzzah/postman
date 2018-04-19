@@ -78,7 +78,7 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
 
 
     @Override
-    public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName) {
+    public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName, @NonNull InetAddress addressToSearchOn) {
 
         return Flowable.<PostmanDiscoveryEvent>fromPublisher(subscriber -> {
             if (isDiscovering.compareAndSet(false, true)) {
