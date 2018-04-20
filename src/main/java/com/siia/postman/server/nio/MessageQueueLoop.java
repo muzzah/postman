@@ -28,8 +28,14 @@ import io.reactivex.Scheduler;
 import io.reactivex.subjects.PublishSubject;
 
 import static com.siia.commons.core.log.Logcat.v;
+import static java.util.Objects.nonNull;
 
-
+/**
+ * Single threaded message queue which handles the reading and writing of
+ * PostmanMessages to connected clients. Clients need to be registered before
+ * one can send or receive messages. A registration event will be fired once client is registered
+ * and ready to be communicated with
+ */
 class MessageQueueLoop {
     private static final String TAG = Logcat.getTag();
 
@@ -221,27 +227,28 @@ class MessageQueueLoop {
                     return;
                 }
 
-                PostmanMessage msg = messagesForClient.peek();
-                if (msg != null) {
+                while(!messagesForClient.isEmpty()) {
+                    PostmanMessage msg = messagesForClient.peek();
+                    if (nonNull(msg)) {
+                        try {
+                            Logcat.v(TAG, connection.getConnectionId(), "Sending msg : " + msg.toString());
+                            if (connection.sendMessage(msg)) {
+                                messagesForClient.remove(msg);
+                            }
+                        } catch (NonWritableChannelException e) {
+                            Log.e(TAG, "Channel not writable", e);
+                        } catch (IOException e) {
+                            Log.e(TAG, "Problem sending message", e);
+                            cleanupConnection(connection);
 
-                    try {
-                        Logcat.v(TAG, connection.getConnectionId(), "Sending msg : " + msg.toString());
-                        if (connection.sendMessage(msg)) {
-                            connection.unsetWriteInterest();
-                            messagesForClient.remove(msg);
                         }
-                    } catch (NonWritableChannelException e) {
-                        Log.e(TAG, "Channel not writable", e);
-                    } catch (IOException e) {
-                        Log.e(TAG, "Problem sending message", e);
-                        cleanupConnection(connection);
 
+                    } else {
+                        Logcat.w(TAG, "Selector write ops received but no message in queue");
+                        connection.unsetWriteInterest();
                     }
-
-                } else {
-                    Logcat.w(TAG, "Selector write ops received but no message in queue");
-                    connection.unsetWriteInterest();
                 }
+                connection.unsetWriteInterest();
 
             }
         });

@@ -92,7 +92,7 @@ public class NIOPostmanClient implements PostmanClient {
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case NEW_MESSAGE:
-                                    Log.v(TAG, "Next Msg");
+                                    Log.v(TAG, "Delivering next msg");
                                     clientEventStream.onNext(clientEvent);
                                     break;
                                 case IGNORE:
