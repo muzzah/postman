@@ -21,6 +21,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Flowable;
@@ -45,6 +46,7 @@ class MessageQueueLoop {
     private final List<NIOConnection> clientsToRegister;
     private PublishSubject<MessageQueueEvent> messageRouterEventStream;
     private Scheduler newThreadScheduler;
+    private final AtomicBoolean shouldLoop;
 
     @SuppressLint("UseSparseArrays")
     MessageQueueLoop(Scheduler newThreadScheduler) {
@@ -53,11 +55,11 @@ class MessageQueueLoop {
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
         this.messageQueueForEachClient = new ConcurrentHashMap<>();
         this.clientsToRegister = Collections.synchronizedList(new ArrayList<>());
-
+        this.shouldLoop = new AtomicBoolean(false);
     }
 
     void shutdown() {
-
+        shouldLoop.set(false);
         connectedClientsBySelectionKey.values().forEach(NIOConnection::destroy);
         connectedClientsBySelectionKey.clear();
 
@@ -158,10 +160,12 @@ class MessageQueueLoop {
                     emitter.onNext(MessageQueueEvent.ready());
 
                     try {
-                        while (true) {
+                        shouldLoop.set(true);
+
+                        while (shouldLoop.get()) {
                             int channelsReady = readWriteSelector.select();
 
-                            if (!readWriteSelector.isOpen()) {
+                            if (!readWriteSelector.isOpen() || !shouldLoop.get()) {
                                 break;
                             }
 
@@ -173,13 +177,20 @@ class MessageQueueLoop {
                             processKeysWithUpdates();
 
                         }
+                        Logcat.d(TAG, "Message Queue Loop Exited");
+                        shutdown();
+
+                        if(!emitter.isCancelled()) {
+                            emitter.onComplete();
+                        }
+
                     } catch (Throwable e) {
-
+                        Logcat.e(TAG, "Error in Message Queue Loop", e);
+                        if(!emitter.isCancelled()) {
+                            emitter.onError(e);
+                        }
+                        shutdown();
                     }
-
-                    Logcat.d(TAG, "Message Queue Loop Exited");
-                    emitter.onComplete();
-
                 }, BackpressureStrategy.BUFFER)
                 .subscribeOn(newThreadScheduler);
 
@@ -286,5 +297,9 @@ class MessageQueueLoop {
 
     PublishSubject<MessageQueueEvent> messageQueueEventsStream() {
         return messageRouterEventStream;
+    }
+
+    void stopLoop() {
+        shouldLoop.set(false);
     }
 }

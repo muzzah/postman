@@ -1,5 +1,6 @@
 package com.siia.postman.server.nio;
 
+import android.annotation.SuppressLint;
 import android.util.Log;
 
 import com.siia.commons.core.io.IO;
@@ -54,10 +55,10 @@ class ServerEventLoop {
     }
 
     void shutdownLoop() {
-
+        messageRouter.stopLoop();
         disposables.clear();
-        IO.closeQuietly(clientJoinSelector);
         IO.closeQuietly(serverSocketChannel);
+        IO.closeQuietly(clientJoinSelector);
         messageRouter.shutdown();
 
     }
@@ -72,6 +73,7 @@ class ServerEventLoop {
 
     }
 
+    @SuppressLint("CheckResult")
     void startLooping() {
         Logcat.d(TAG, "Initialising Server Event Loop");
         messageRouter = new MessageQueueLoop(newThreadScheduler);

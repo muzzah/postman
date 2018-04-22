@@ -106,7 +106,6 @@ public class NIOPostmanClient implements PostmanClient {
                             clientEventStream.onError(error);
                         },
                         () -> {
-                            disconnect();
                             clientEventStream.onComplete();
                         });
 
@@ -165,15 +164,19 @@ public class NIOPostmanClient implements PostmanClient {
 
     @Override
     public void disconnect() {
+        messageRouter.stopLoop();
+
+        if (client != null) {
+            client.destroy();
+        }
+
         disposables.clear();
 
         if (messageRouter != null) {
             messageRouter.shutdown();
         }
 
-        if (client != null) {
-            client.destroy();
-        }
+
 
     }
 

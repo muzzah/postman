@@ -163,11 +163,13 @@ public class NIOPostmanServer implements PostmanServer {
             return;
         }
 
-        disposables.clear();
-
         if (nonNull(serverEventLoop)) {
             serverEventLoop.shutdownLoop();
         }
+
+        disposables.clear();
+
+
         clients.clear();
     }
 
