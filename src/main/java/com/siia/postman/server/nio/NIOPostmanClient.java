@@ -26,6 +26,8 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.processors.FlowableProcessor;
 import io.reactivex.processors.PublishProcessor;
 
+import static java.util.Objects.nonNull;
+
 @SuppressLint("MissingPermission")
 public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
@@ -164,15 +166,18 @@ public class NIOPostmanClient implements PostmanClient {
 
     @Override
     public void disconnect() {
-        messageRouter.stopLoop();
 
-        if (client != null) {
+        if(nonNull(messageRouter)) {
+            messageRouter.stopLoop();
+        }
+
+        if (nonNull(client)) {
             client.destroy();
         }
 
         disposables.clear();
 
-        if (messageRouter != null) {
+        if (nonNull(messageRouter)) {
             messageRouter.shutdown();
         }
 
