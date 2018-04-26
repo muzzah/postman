@@ -1,8 +1,6 @@
 package com.siia.postman.discovery;
 
 
-import android.support.annotation.VisibleForTesting;
-
 public class PostmanDiscoveryEvent {
 
 
@@ -18,8 +16,7 @@ public class PostmanDiscoveryEvent {
 
     private Object serviceDetails;
 
-    @VisibleForTesting
-    public PostmanDiscoveryEvent(Object serviceDetails) {
+    PostmanDiscoveryEvent(Object serviceDetails) {
         this.type = Type.FOUND;
         this.serviceDetails = serviceDetails;
     }

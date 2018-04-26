@@ -136,6 +136,11 @@ public class BonjourDiscoveryService implements PostmanDiscoveryService {
         @Override
         public void serviceAdded(ServiceEvent event) {
             Logcat.d(TAG, "Service Added : %s", event.toString());
+            ServiceInfo serviceInfo = event.getDNS().getServiceInfo(event.getType(), event.getName());
+            if(nonNull(serviceInfo)) {
+                parseAndNotifyFound(serviceInfo);
+            }
+
         }
 
         @Override
@@ -148,6 +153,11 @@ public class BonjourDiscoveryService implements PostmanDiscoveryService {
         public void serviceResolved(ServiceEvent event) {
             Logcat.d(TAG, "Service Resolved : %s", event.toString());
             ServiceInfo serviceInfo = event.getInfo();
+            parseAndNotifyFound(serviceInfo);
+        }
+
+        //Synchronize this so onNext calls are serialised
+        private synchronized void parseAndNotifyFound(ServiceInfo serviceInfo) {
             Inet4Address[] addresses = serviceInfo.getInet4Addresses();
             InetAddressServiceDetails serviceDetails = new InetAddressServiceDetails(addresses[0], serviceInfo.getPort());
             Logcat.v(TAG, "address=%s port=%d", Arrays.toString(addresses), serviceInfo.getPort());
