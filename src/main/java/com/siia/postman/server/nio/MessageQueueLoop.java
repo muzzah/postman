@@ -218,7 +218,7 @@ class MessageQueueLoop {
                 try {
                     connection.read();
                 } catch (Exception e) {
-                    Logcat.w(TAG, "Lost connection : %s", e.getMessage());
+                    Logcat.e(TAG, "Lost connection", e);
                     cleanupConnection(connection);
                     return;
                 }

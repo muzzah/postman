@@ -135,11 +135,18 @@ public class BonjourDiscoveryService implements PostmanDiscoveryService {
 
         @Override
         public void serviceAdded(ServiceEvent event) {
-            Logcat.d(TAG, "Service Added : %s", event.toString());
+            Logcat.d(TAG, "Service Added : type=%s name=%s", event.getType(), event.getName());
             ServiceInfo serviceInfo = event.getDNS().getServiceInfo(event.getType(), event.getName());
-            if(nonNull(serviceInfo)) {
-                parseAndNotifyFound(serviceInfo);
+
+            if(isNull(serviceInfo)) {
+                Logcat.w(TAG, "Empty service info returned, requesting info");
+                event.getDNS().requestServiceInfo(event.getType(), event.getName(), true);
+                return;
             }
+            Logcat.v(TAG, "domain=%s app=%s addresses=%s name=%s port=%d urls=%s", serviceInfo.getDomain(), serviceInfo.getApplication(), Arrays.toString(serviceInfo.getInetAddresses()),
+                    serviceInfo.getName(), serviceInfo.getPort(), Arrays.toString(serviceInfo.getURLs()));
+
+            parseAndNotifyFound(serviceInfo);
 
         }
 
