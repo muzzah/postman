@@ -1,8 +1,13 @@
 package com.siia.postman.server;
 
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+
+import static java.util.Objects.nonNull;
 
 public class ServerEvent {
 
@@ -30,7 +35,7 @@ public class ServerEvent {
     }
 
     public Integer numberOfClients() {
-        return (Integer)attributes.get(Attribute.CLIENT_COUNT);
+        return (Integer) attributes.get(Attribute.CLIENT_COUNT);
     }
 
     public Type type() {
@@ -59,7 +64,7 @@ public class ServerEvent {
     }
 
     public String getHostAddress() {
-        return (String)attributes.get(Attribute.IP_ADDRESS);
+        return (String) attributes.get(Attribute.IP_ADDRESS);
     }
 
 
@@ -89,6 +94,18 @@ public class ServerEvent {
 
     public static ServerEvent newMessage(PostmanMessage msg, Connection client) {
         return new ServerEvent(Type.NEW_MESSAGE).attribute(Attribute.MESSAGE, msg).attribute(Attribute.CLIENT, client);
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder().append(type).append(attributes).toHashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return nonNull(obj) && obj instanceof ServerEvent &&
+                new EqualsBuilder().append(type, ((ServerEvent) obj).type)
+                        .append(attributes, ((ServerEvent) obj).attributes).isEquals();
     }
 
     @Override

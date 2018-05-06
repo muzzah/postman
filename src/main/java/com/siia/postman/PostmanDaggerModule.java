@@ -15,6 +15,9 @@ import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
 import com.siia.postman.server.nio.NIOPostmanClient;
 import com.siia.postman.server.nio.NIOPostmanServer;
+import com.siia.postman.server.nio.ServerEventLoop;
+
+import java.nio.channels.spi.SelectorProvider;
 
 import javax.inject.Named;
 import javax.inject.Provider;
@@ -27,11 +30,9 @@ import io.reactivex.Scheduler;
 class PostmanDaggerModule {
 
     @Provides
-    PostmanServer postmanServer(Provider<PostmanMessage> messageProvider,
-                                @Named("computation") Scheduler computation,
-                                @Named("new") Scheduler newThreadScheduler,
-                                @Named("io") Scheduler io) {
-        return new NIOPostmanServer(messageProvider, computation, io, newThreadScheduler);
+    PostmanServer postmanServer(@Named("computation") Scheduler computation,
+                                ServerEventLoop serverEventLoop) {
+        return new NIOPostmanServer(serverEventLoop, computation);
     }
 
     @Provides
@@ -54,6 +55,11 @@ class PostmanDaggerModule {
                                         @Named("new") Scheduler newThreadScheduler,
                                         Provider<PostmanMessage> messageProvider) {
         return new NIOPostmanClient(computation, messageProvider, ioScheduler, newThreadScheduler);
+    }
+
+    @Provides
+    SelectorProvider providesSelectorProvider() {
+        return SelectorProvider.provider();
     }
 }
 

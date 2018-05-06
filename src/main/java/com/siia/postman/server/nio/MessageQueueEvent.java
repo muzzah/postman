@@ -4,8 +4,13 @@ import android.support.annotation.NonNull;
 
 import com.siia.postman.server.PostmanMessage;
 
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+
 import java.util.HashMap;
 import java.util.Map;
+
+import static java.util.Objects.nonNull;
 
 class MessageQueueEvent {
 
@@ -72,5 +77,24 @@ class MessageQueueEvent {
                 ", type=" + type +
                 ", attributes=" + attributes +
                 '}';
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder()
+                .append(type)
+                .append(attributes)
+                .append(client)
+        .toHashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return nonNull(obj) && obj instanceof MessageQueueEvent &&
+                new EqualsBuilder().
+                        append(type, ((MessageQueueEvent) obj).type)
+                .append(attributes, ((MessageQueueEvent) obj).attributes)
+                .append(client, ((MessageQueueEvent) obj).client)
+                .isEquals();
     }
 }

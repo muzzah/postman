@@ -15,8 +15,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import javax.inject.Provider;
-
 import io.reactivex.Scheduler;
 import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.disposables.Disposable;
@@ -29,20 +27,16 @@ import static java.util.Objects.nonNull;
 public class NIOPostmanServer implements PostmanServer {
     private static final String TAG = Logcat.getTag();
 
-    private ServerEventLoop serverEventLoop;
+    private final ServerEventLoop serverEventLoop;
     private FlowableProcessor<ServerEvent> serverEventsStream;
     private final ConcurrentMap<UUID, Connection> clients;
-    private final Provider<PostmanMessage> messageProvider;
     private final CompositeDisposable disposables;
     private final Scheduler computation;
-    private final Scheduler io;
-    private final Scheduler newThreadScheduler;
 
-    public NIOPostmanServer(Provider<PostmanMessage> messageProvider, Scheduler computation, Scheduler io, Scheduler newThreadScheduler) {
-        this.messageProvider = messageProvider;
+    public NIOPostmanServer(ServerEventLoop serverEventLoop,
+                            Scheduler computation) {
+        this.serverEventLoop = serverEventLoop;
         this.computation = computation;
-        this.io = io;
-        this.newThreadScheduler = newThreadScheduler;
         this.disposables = new CompositeDisposable();
         this.clients = new ConcurrentHashMap<>();
         this.serverEventsStream = PublishProcessor.<ServerEvent>create().toSerialized();
@@ -97,7 +91,6 @@ public class NIOPostmanServer implements PostmanServer {
         }
 
         Logcat.d(TAG, "Starting postman server");
-        serverEventLoop = new ServerEventLoop(bindAddress, computation, messageProvider, io, newThreadScheduler);
 
         Disposable eventDisposable = serverEventLoop.getServerEventsStream()
                 .observeOn(computation)
@@ -151,7 +144,7 @@ public class NIOPostmanServer implements PostmanServer {
         disposables.add(newMessageDisposable);
         disposables.add(eventDisposable);
 
-        serverEventLoop.startLooping();
+        serverEventLoop.startLooping(bindAddress);
 
     }
 

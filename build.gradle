@@ -101,6 +101,9 @@ dependencies {
     implementation "org.jmdns:jmdns:3.5.4"
     //For JMDNS
     implementation 'org.slf4j:slf4j-android:1.7.25'
+    implementation "commons-io:commons-io:${project.commonsIoVersion}"
+    implementation "org.apache.commons:commons-lang3:${project.commonsLangVersion}"
+
 
 
 

@@ -8,7 +8,6 @@ import com.siia.postman.server.PostmanMessage;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.List;
@@ -79,7 +78,7 @@ class NIOConnection implements Connection {
         }
     }
 
-    void setWriteInterest() throws ClosedChannelException {
+    void setWriteInterest() {
         selectionKey.interestOps(selectionKey.interestOps() | SelectionKey.OP_WRITE);
     }
 

@@ -17,6 +17,7 @@ import java.net.ConnectException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.spi.SelectorProvider;
 
 import javax.inject.Provider;
 
@@ -63,7 +64,7 @@ public class NIOPostmanClient implements PostmanClient {
             return;
         }
 
-        messageRouter = new MessageQueueLoop(newThreadScheduler);
+        messageRouter = new MessageQueueLoop(newThreadScheduler, SelectorProvider.provider());
         Disposable msgQueueDisposable = messageRouter.messageQueueEventsStream()
                 .observeOn(computation)
                 .map(

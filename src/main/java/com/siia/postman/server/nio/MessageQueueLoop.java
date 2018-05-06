@@ -1,6 +1,5 @@
 package com.siia.postman.server.nio;
 
-import android.annotation.SuppressLint;
 import android.util.Log;
 
 import com.siia.commons.core.io.IO;
@@ -9,10 +8,9 @@ import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 
 import java.io.IOException;
-import java.nio.channels.ClosedChannelException;
-import java.nio.channels.NonWritableChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -23,12 +21,16 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.inject.Inject;
+import javax.inject.Named;
+
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
 import io.reactivex.subjects.PublishSubject;
 
 import static com.siia.commons.core.log.Logcat.v;
+import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 
 /**
@@ -46,11 +48,13 @@ class MessageQueueLoop {
     private final List<NIOConnection> clientsToRegister;
     private PublishSubject<MessageQueueEvent> messageRouterEventStream;
     private Scheduler newThreadScheduler;
+    private final SelectorProvider selectorProvider;
     private final AtomicBoolean shouldLoop;
 
-    @SuppressLint("UseSparseArrays")
-    MessageQueueLoop(Scheduler newThreadScheduler) {
+    @Inject
+    MessageQueueLoop(@Named("new") Scheduler newThreadScheduler, SelectorProvider selectorProvider) {
         this.newThreadScheduler = newThreadScheduler;
+        this.selectorProvider = selectorProvider;
         this.messageRouterEventStream = PublishSubject.create();
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
         this.messageQueueForEachClient = new ConcurrentHashMap<>();
@@ -79,7 +83,7 @@ class MessageQueueLoop {
         return readWriteSelector != null && readWriteSelector.isOpen();
     }
 
-    boolean addMessageToQueue(PostmanMessage msg, Connection destination) {
+    protected boolean addMessageToQueue(PostmanMessage msg, Connection destination) {
 
         NIOConnection NIOConnection = (NIOConnection) destination;
 
@@ -88,16 +92,18 @@ class MessageQueueLoop {
             return false;
         }
 
-        BlockingQueue<PostmanMessage> queueForClient = messageQueueForEachClient.get(NIOConnection);
+        BlockingQueue<PostmanMessage> queueForClient = messageQueueForEachClient.getOrDefault(NIOConnection, new LinkedBlockingQueue<>());
 
         if (!queueForClient.offer(msg)) {
             Logcat.e(TAG, "Could not add message [%s] to queue, dropping", msg.toString());
             return false;
         }
 
+        messageQueueForEachClient.put(NIOConnection, queueForClient);
+
         try {
             NIOConnection.setWriteInterest();
-        } catch (ClosedChannelException e) {
+        } catch (Throwable e) {
             Logcat.e(TAG, "Could not set write interest for connection selector", e);
             cleanupConnection(NIOConnection);
             return false;
@@ -122,6 +128,7 @@ class MessageQueueLoop {
 
 
         if (messageQueueForEachClient.containsKey(client)) {
+            messageQueueForEachClient.get(client).clear();
             messageQueueForEachClient.remove(client);
         }
 
@@ -137,26 +144,23 @@ class MessageQueueLoop {
     Flowable<MessageQueueEvent> startMessageQueueLoop() {
         if (isRunning()) {
             Logcat.w(TAG, "Message Queue already running");
-            return Flowable.<MessageQueueEvent>create(
-                    emitter -> emitter.onError(new IllegalStateException("Already running the loop")),
-                    BackpressureStrategy.LATEST)
+            return Flowable.<MessageQueueEvent>error(new IllegalStateException("Already running the loop"))
                     .subscribeOn(newThreadScheduler);
         }
 
         Logcat.d(TAG, "Initialising message loop");
 
+        try {
+            readWriteSelector = selectorProvider.openSelector();
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to open selector for read/write", e);
+            return Flowable.<MessageQueueEvent>error(e)
+                    .subscribeOn(newThreadScheduler);
+        }
+
         return Flowable.<MessageQueueEvent>create(
                 emitter -> {
-                    Logcat.v(TAG, "At start Message Queue");
-                    try {
-                        readWriteSelector = Selector.open();
-                    } catch (IOException e) {
-                        Log.e(TAG, "Failed to open selector for read/write", e);
-                        emitter.onError(e);
-                        return;
-                    }
-
-                    Logcat.v(TAG, "Firing ready event");
+                    Logcat.v(TAG, "Enter Msg Queue Loop");
                     emitter.onNext(MessageQueueEvent.ready());
 
                     try {
@@ -220,20 +224,21 @@ class MessageQueueLoop {
                 } catch (Exception e) {
                     Logcat.e(TAG, "Lost connection", e);
                     cleanupConnection(connection);
-                    return;
                 }
 
-                connection.filledMessages().forEach(msg -> {
-                    Logcat.v(TAG, "Message received [%s]", msg.toString());
+                if(connection.isValid()) {
+                    connection.filledMessages().forEach(msg -> {
+                        Logcat.v(TAG, "Message received [%s]", msg.toString());
 
-                    messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(connection, msg));
-                });
+                        messageRouterEventStream.onNext(MessageQueueEvent.messageReceived(connection, msg));
+                    });
+                }
             }
 
             if (selectionKey.isWritable()) {
                 BlockingQueue<PostmanMessage> messagesForClient = messageQueueForEachClient.get(connection);
 
-                if (messagesForClient.isEmpty()) {
+                if (isNull(messagesForClient) || messagesForClient.isEmpty()) {
                     connection.unsetWriteInterest();
                     return;
                 }
@@ -246,20 +251,17 @@ class MessageQueueLoop {
                             if (connection.sendMessage(msg)) {
                                 messagesForClient.remove(msg);
                             }
-                        } catch (NonWritableChannelException e) {
-                            Log.e(TAG, "Channel not writable", e);
-                        } catch (IOException e) {
+                        } catch (Throwable e) {
                             Log.e(TAG, "Problem sending message", e);
                             cleanupConnection(connection);
-
                         }
 
-                    } else {
-                        Logcat.w(TAG, "Selector write ops received but no message in queue");
-                        connection.unsetWriteInterest();
                     }
                 }
-                connection.unsetWriteInterest();
+
+                if(messagesForClient.isEmpty() && connection.isValid()) {
+                    connection.unsetWriteInterest();
+                }
 
             }
         });
@@ -273,7 +275,7 @@ class MessageQueueLoop {
             try {
                 //Start with a write interest to send any queued up msgs, loop below will unset connection if needed
                 clientKey = client.channel().register(readWriteSelector, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
-            } catch (ClosedChannelException e) {
+            } catch (Throwable e) {
                 Log.e(TAG, "Connected connection disconnected before write ops registration", e);
                 client.destroy();
                 messageRouterEventStream.onNext(MessageQueueEvent.clientRegistrationFailed(client));
@@ -282,7 +284,6 @@ class MessageQueueLoop {
 
             client.setSelectionKey(clientKey);
             connectedClientsBySelectionKey.put(clientKey, client);
-            messageQueueForEachClient.put(client, new LinkedBlockingQueue<>());
             messageRouterEventStream.onNext(MessageQueueEvent.clientRegistered(client));
         });
 

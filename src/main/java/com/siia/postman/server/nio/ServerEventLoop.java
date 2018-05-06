@@ -1,7 +1,5 @@
 package com.siia.postman.server.nio;
 
-import android.annotation.SuppressLint;
-import android.util.Log;
 
 import com.siia.commons.core.io.IO;
 import com.siia.commons.core.log.Logcat;
@@ -12,15 +10,18 @@ import com.siia.postman.server.ServerEvent;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
-import java.net.SocketException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.spi.SelectorProvider;
 
+import javax.inject.Inject;
+import javax.inject.Named;
 import javax.inject.Provider;
 
 import io.reactivex.Scheduler;
+import io.reactivex.annotations.NonNull;
 import io.reactivex.disposables.CompositeDisposable;
 import io.reactivex.processors.FlowableProcessor;
 import io.reactivex.processors.PublishProcessor;
@@ -29,27 +30,30 @@ import static com.siia.commons.core.log.Logcat.d;
 import static com.siia.commons.core.log.Logcat.v;
 import static com.siia.commons.core.log.Logcat.w;
 
-class ServerEventLoop {
+public class ServerEventLoop {
     private static final String TAG = Logcat.getTag();
 
     private ServerSocketChannel serverSocketChannel;
     private Selector clientJoinSelector;
-    private MessageQueueLoop messageRouter;
-    private final InetSocketAddress bindAddress;
+    private final MessageQueueLoop messageRouter;
+    private InetSocketAddress bindAddress;
     private final Scheduler computation;
     private final Provider<PostmanMessage> messageProvider;
     private final FlowableProcessor<ServerEvent> serverEventStream;
     private final CompositeDisposable disposables;
     private final Scheduler io;
-    private final Scheduler newThreadScheduler;
+    private SelectorProvider selectorProvider;
+    private SelectionKey selectionKey;
 
-    ServerEventLoop(InetSocketAddress bindAddress, Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler io,
-                    Scheduler newThreadScheduler) {
-        this.bindAddress = bindAddress;
+    @Inject
+    ServerEventLoop(MessageQueueLoop messageRouter, @Named("computation") Scheduler computation,
+                    Provider<PostmanMessage> messageProvider,
+                    @Named("io") Scheduler io, SelectorProvider selectorProvider) {
+        this.messageRouter = messageRouter;
         this.computation = computation;
         this.messageProvider = messageProvider;
         this.io = io;
-        this.newThreadScheduler = newThreadScheduler;
+        this.selectorProvider = selectorProvider;
         serverEventStream = PublishProcessor.<ServerEvent>create().toSerialized();
         disposables = new CompositeDisposable();
     }
@@ -73,10 +77,9 @@ class ServerEventLoop {
 
     }
 
-    @SuppressLint("CheckResult")
-    void startLooping() {
+    void startLooping(@NonNull InetSocketAddress bindAddress) {
         Logcat.d(TAG, "Initialising Server Event Loop");
-        messageRouter = new MessageQueueLoop(newThreadScheduler);
+        this.bindAddress = bindAddress;
         disposables.add(messageRouter.messageQueueEventsStream()
                 .observeOn(computation)
                 .subscribe(
@@ -92,7 +95,7 @@ class ServerEventLoop {
                 ));
 
 
-        messageRouter.startMessageQueueLoop()
+        disposables.add(messageRouter.startMessageQueueLoop()
                 .observeOn(io)
                 .subscribe(
                         readyMsg -> startListeningForClients(),
@@ -100,7 +103,10 @@ class ServerEventLoop {
                             shutdownLoop();
                             serverEventStream.onError(error);
                         },
-                        () -> Logcat.i(TAG, "Message Queue completed"));
+                        () -> {
+                            shutdownLoop();
+                            serverEventStream.onComplete();
+                        }));
 
     }
 
@@ -110,7 +116,7 @@ class ServerEventLoop {
                 serverEventStream.onNext(ServerEvent.newClient(messageQueueEvent.client()));
                 break;
             case CLIENT_REGISTRATION_FAILED:
-                Log.w(TAG, "Problem when registering connection");
+                Logcat.w(TAG, "Problem when registering connection");
                 break;
             case CLIENT_UNREGISTERED:
                 serverEventStream.onNext(ServerEvent.clientDisconnected(messageQueueEvent.client()));
@@ -129,7 +135,6 @@ class ServerEventLoop {
     private void startListeningForClients() {
         Logcat.d(TAG, "Beginning to listen to clients");
         if (!initialiseServerSocket()) {
-            serverEventStream.onError(new SocketException("Could not initialise server socket"));
             return;
         }
 
@@ -145,7 +150,7 @@ class ServerEventLoop {
                 }
 
                 if (clientJoinSelector.selectedKeys().isEmpty()) {
-                    Log.w(TAG, "Selected keys are empty");
+                    Logcat.w(TAG, "Selected keys are empty");
                     continue;
                 }
 
@@ -154,10 +159,12 @@ class ServerEventLoop {
                 processKeyUpdates();
 
             }
-            shutdownLoop();
+
             serverEventStream.onComplete();
         } catch (Exception e) {
             serverEventStream.onError(e);
+        } finally {
+            shutdownLoop();
         }
     }
 
@@ -176,7 +183,7 @@ class ServerEventLoop {
                     messageRouter.addClient(client);
                 }
             } else {
-                Log.w(TAG, "Unrecognised interest operation for server socket channel");
+                Logcat.w(TAG, "Unrecognised interest operation for server socket channel");
             }
         });
 
@@ -186,15 +193,15 @@ class ServerEventLoop {
 
     private boolean initialiseServerSocket() {
         try {
-            clientJoinSelector = Selector.open();
-            serverSocketChannel = ServerSocketChannel.open();
+            clientJoinSelector = selectorProvider.openSelector();
+            serverSocketChannel = selectorProvider.openServerSocketChannel();
             ServerSocket serverSocket = serverSocketChannel.socket();
             serverSocket.setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
                     Connection.LATENCY_PREFERENCE,Connection.BANDWIDTH_PREFERENCE);
             serverSocket.bind(bindAddress);
             v(TAG, "Server bound to %s:%d", bindAddress.getAddress().getHostAddress(), serverSocket.getLocalPort());
             serverSocketChannel.configureBlocking(false);
-            serverSocketChannel.register(clientJoinSelector,
+            selectionKey = serverSocketChannel.register(clientJoinSelector,
                     SelectionKey.OP_ACCEPT);
             return true;
         } catch (Exception e) {
