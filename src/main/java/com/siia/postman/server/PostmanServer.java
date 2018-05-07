@@ -11,24 +11,20 @@ import java.util.UUID;
 
 import javax.inject.Singleton;
 
-import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.Flowable;
 
 
-@Singleton
 public interface PostmanServer {
 
 
     @AnyThread
-    void serverStart(@NonNull InetSocketAddress bindAddress);
+    Flowable<ServerEvent> serverStart(@NonNull InetSocketAddress bindAddress);
 
     @WorkerThread
     void stopServer();
 
     @AnyThread
     boolean isRunning();
-
-    @AnyThread
-    FlowableProcessor<ServerEvent> getServerEventsStream();
 
     @AnyThread
     void broadcastMessage(MessageLite msg);

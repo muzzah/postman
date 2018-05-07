@@ -11,6 +11,7 @@ import static java.util.Objects.nonNull;
 
 public class ServerEvent {
 
+
     private enum Attribute {
         CLIENT,
         LISTENING_PORT,
@@ -106,6 +107,11 @@ public class ServerEvent {
         return nonNull(obj) && obj instanceof ServerEvent &&
                 new EqualsBuilder().append(type, ((ServerEvent) obj).type)
                         .append(attributes, ((ServerEvent) obj).attributes).isEquals();
+    }
+
+
+    public static boolean isClientJoinDisconnectEvent(ServerEvent serverEvent) {
+        return serverEvent.type == Type.CLIENT_JOIN || serverEvent.type == Type.CLIENT_DISCONNECT;
     }
 
     @Override

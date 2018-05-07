@@ -30,9 +30,8 @@ import io.reactivex.Scheduler;
 class PostmanDaggerModule {
 
     @Provides
-    PostmanServer postmanServer(@Named("computation") Scheduler computation,
-                                ServerEventLoop serverEventLoop) {
-        return new NIOPostmanServer(serverEventLoop, computation);
+    PostmanServer postmanServer(ServerEventLoop serverEventLoop) {
+        return new NIOPostmanServer(serverEventLoop);
     }
 
     @Provides

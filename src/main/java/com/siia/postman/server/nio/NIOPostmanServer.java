@@ -11,140 +11,74 @@ import com.siia.postman.server.PostmanServer;
 import com.siia.postman.server.ServerEvent;
 
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
-import io.reactivex.Scheduler;
+import io.reactivex.Flowable;
 import io.reactivex.disposables.CompositeDisposable;
-import io.reactivex.disposables.Disposable;
-import io.reactivex.processors.FlowableProcessor;
-import io.reactivex.processors.PublishProcessor;
-
-import static java.util.Objects.nonNull;
 
 
 public class NIOPostmanServer implements PostmanServer {
     private static final String TAG = Logcat.getTag();
 
     private final ServerEventLoop serverEventLoop;
-    private FlowableProcessor<ServerEvent> serverEventsStream;
-    private final ConcurrentMap<UUID, Connection> clients;
     private final CompositeDisposable disposables;
-    private final Scheduler computation;
 
-    public NIOPostmanServer(ServerEventLoop serverEventLoop,
-                            Scheduler computation) {
+    public NIOPostmanServer(ServerEventLoop serverEventLoop) {
         this.serverEventLoop = serverEventLoop;
-        this.computation = computation;
         this.disposables = new CompositeDisposable();
-        this.clients = new ConcurrentHashMap<>();
-        this.serverEventsStream = PublishProcessor.<ServerEvent>create().toSerialized();
-    }
-
-    @Override
-    public FlowableProcessor<ServerEvent> getServerEventsStream() {
-        return serverEventsStream;
     }
 
     @Override
     public void broadcastMessage(@NonNull MessageLite msg) {
-        clients.values().stream().parallel().forEach(client -> serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), client));
+        serverEventLoop.getClients().forEach(client -> serverEventLoop.addMessageToQueue(new PostmanMessage(msg), client));
     }
 
     @Override
     public void sendMessage(@NonNull PostmanMessage msg, @NonNull Connection client) {
-        serverEventLoop.getMessageQueue().addMessageToQueue(msg, client);
+        serverEventLoop.addMessageToQueue(msg, client);
     }
 
     @Override
     public void sendMessage(@NonNull MessageLite msg, @NonNull Connection client) {
-        serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), client);
+        serverEventLoop.addMessageToQueue(new PostmanMessage(msg), client);
     }
 
     @Override
     public int numberOfClients() {
-        return clients.size();
+        return serverEventLoop.getClients().size();
     }
 
     @Override
     @WorkerThread
     public void disconnectClient(@NonNull UUID uuid) {
+        //TODO
         throw new UnsupportedOperationException("Need to impelment this still");
     }
 
     @Override
-    public void sendMessage(MessageLite msg, UUID uuid) {
-        Connection connection = clients.get(uuid);
-        if (connection == null) {
-            Logcat.w(TAG, "Client %s does not seem to be connected, not sending message", uuid.toString());
+    public void sendMessage(MessageLite msg, UUID connectionId) {
+        Optional<NIOConnection> connection = serverEventLoop.getClients()
+                .parallelStream()
+                .filter(nioConnection -> nioConnection.getConnectionId().equals(connectionId))
+                .findFirst();
+
+        if (!connection.isPresent()) {
+            Logcat.w(TAG, "Client %s does not seem to be connected, not sending message", connectionId.toString());
             return;
         }
-        serverEventLoop.getMessageQueue().addMessageToQueue(new PostmanMessage(msg), connection);
+        serverEventLoop.addMessageToQueue(new PostmanMessage(msg), connection.get());
     }
 
     @Override
-    public void serverStart(@NonNull InetSocketAddress bindAddress) {
+    public Flowable<ServerEvent> serverStart(@NonNull InetSocketAddress bindAddress) {
         if (isRunning()) {
             Logcat.w(TAG, "Server already running");
-            return;
+            return Flowable.error(new IllegalStateException("Already running"));
         }
 
         Logcat.d(TAG, "Starting postman server");
-
-        Disposable eventDisposable = serverEventLoop.getServerEventsStream()
-                .observeOn(computation)
-                .filter(serverEvent -> !serverEvent.isNewMessage())
-                .subscribe(
-                        event -> {
-                            Logcat.v(TAG, "Server event received %s", event.type());
-                            switch (event.type()) {
-                                case CLIENT_JOIN:
-                                    Logcat.d(TAG, "Client connected [%s]", event.connection().getConnectionId());
-                                    clients.put(event.connectionId(), event.connection());
-                                    serverEventsStream.onNext(ServerEvent.newClient(event.connection(), clients.size()));
-                                    break;
-                                case CLIENT_DISCONNECT:
-                                    Logcat.d(TAG, "Client disconnected [%s]", event.connection().getConnectionId());
-                                    clients.remove(event.connectionId());
-                                    serverEventsStream.onNext(event);
-                                    break;
-                                case SERVER_LISTENING:
-                                    serverEventsStream.onNext(event);
-                                    break;
-                                default:
-                                    Logcat.d(TAG, "Not processing event %s", event.type().name());
-                                    break;
-                            }
-
-
-                        },
-                        //TODO Separate out the internal server error streams from event streams so that we can distinguish and handle them seprately
-                        //i.e clients who susbscribe to the outgoing event stream can handle errors when they should be hidden from them.
-                        // Right now they can because we send internal server errors
-                        //Down stream
-                        error -> serverEventsStream.onError(new UnexpectedServerShutdownException(error)),
-                        () -> serverEventsStream.onComplete());
-
-
-        Disposable newMessageDisposable = serverEventLoop.getServerEventsStream()
-                .observeOn(computation)
-                .filter(serverEvent -> serverEvent.isNewMessage() && clients.containsKey(serverEvent.connectionId()))
-                .subscribe(
-                        event -> {
-                            Logcat.v(TAG, "Msg Stream hasSubscriber=%b isComplete=%b hasThrowable=%b",
-                                    serverEventsStream.hasSubscribers(),
-                                    serverEventsStream.hasComplete(),
-                                    serverEventsStream.hasThrowable());
-
-                            serverEventsStream.onNext(ServerEvent.newMessage(event.message(), event.connection()));
-                        }
-                );
-
-        disposables.add(newMessageDisposable);
-        disposables.add(eventDisposable);
-
-        serverEventLoop.startLooping(bindAddress);
+        return serverEventLoop.startLooping(bindAddress);
 
     }
 
@@ -156,26 +90,16 @@ public class NIOPostmanServer implements PostmanServer {
             return;
         }
 
-        if (nonNull(serverEventLoop)) {
-            serverEventLoop.shutdownLoop();
-        }
+        serverEventLoop.shutdownLoop();
 
         disposables.clear();
 
-
-        clients.clear();
     }
 
     @Override
     public boolean isRunning() {
-        return nonNull(serverEventLoop)
-                && serverEventLoop.isRunning();
+        return serverEventLoop.isRunning();
     }
 
 
-    private class UnexpectedServerShutdownException extends Throwable {
-        UnexpectedServerShutdownException(Throwable error) {
-            super(error);
-        }
-    }
 }

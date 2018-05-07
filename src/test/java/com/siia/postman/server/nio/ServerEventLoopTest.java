@@ -72,7 +72,7 @@ public class ServerEventLoopTest {
         selector = new TestSelector(selectorProvider);
         scheduler = new TestScheduler();
         testSubscriber = new TestSubscriber<>();
-        serverEventLoop = new ServerEventLoop(messageRouter, scheduler, messageProvider, scheduler, selectorProvider);
+        serverEventLoop = new ServerEventLoop(messageRouter, scheduler, messageProvider, scheduler, selectorProvider, newThreadScheduler);
 
         when(messageRouter.messageQueueEventsStream()).thenReturn(messageQueueStream);
         when(messageRouter.startMessageQueueLoop()).thenReturn(mainMessageQueueStream);
