@@ -7,6 +7,9 @@ import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -16,6 +19,7 @@ import java.util.Optional;
 import javax.inject.Inject;
 import javax.inject.Provider;
 
+import static com.siia.commons.core.log.Logcat.v;
 import static com.siia.commons.core.log.Logcat.w;
 
 /**
@@ -47,5 +51,16 @@ class NIOConnectionFactory {
             return Optional.empty();
         }
 
+    }
+
+    SelectionKey bindServerSocket(Selector nioSelector, ServerSocketChannel serverSocketChannel, InetSocketAddress bindAddress) throws IOException {
+        ServerSocket serverSocket = serverSocketChannel.socket();
+        serverSocket.setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
+                Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
+        serverSocket.bind(bindAddress);
+        v(TAG, "Server bound to %s:%d", bindAddress.getAddress().getHostAddress(), serverSocket.getLocalPort());
+        serverSocketChannel.configureBlocking(false);
+        return serverSocketChannel.register(nioSelector,
+                SelectionKey.OP_ACCEPT);
     }
 }

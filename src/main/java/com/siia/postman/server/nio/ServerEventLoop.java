@@ -9,17 +9,15 @@ import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServerEvent;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.Collection;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.LinkedBlockingQueue;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -33,7 +31,6 @@ import io.reactivex.disposables.CompositeDisposable;
 
 import static com.siia.commons.core.log.Logcat.d;
 import static com.siia.commons.core.log.Logcat.v;
-import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 
 class ServerEventLoop {
@@ -47,7 +44,6 @@ class ServerEventLoop {
     @SuppressWarnings({"FieldCanBeLocal", "unused"})
     private SelectionKey acceptSelectionKey;
     private final ConcurrentMap<SelectionKey, NIOConnection> connectedClientsBySelectionKey;
-    private final ConcurrentMap<Connection, BlockingQueue<PostmanMessage>> messageQueueForEachClient;
     private final NIOConnectionFactory nioConnectionFactory;
     private Scheduler newThreadScheduler;
 
@@ -60,7 +56,6 @@ class ServerEventLoop {
         this.nioConnectionFactory = nioConnectionFactory;
         this.newThreadScheduler = newThreadScheduler;
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
-        this.messageQueueForEachClient = new ConcurrentHashMap<>();
         this.disposables = new CompositeDisposable();
     }
 
@@ -70,7 +65,6 @@ class ServerEventLoop {
         IO.closeQuietly(serverSocketChannel);
         IO.closeQuietly(nioSelector);
         connectedClientsBySelectionKey.clear();
-        messageQueueForEachClient.clear();
     }
 
     boolean isRunning() {
@@ -88,22 +82,14 @@ class ServerEventLoop {
             return false;
         }
 
-        BlockingQueue<PostmanMessage> queueForClient = messageQueueForEachClient.getOrDefault(NIOConnection, new LinkedBlockingQueue<>());
-
-        if (!queueForClient.offer(msg)) {
-            Logcat.e(TAG, "Could not add message [%s] to queue, dropping", msg.toString());
-            return false;
-        }
-
-        messageQueueForEachClient.put(NIOConnection, queueForClient);
-
         try {
-            NIOConnection.setWriteInterest();
+            NIOConnection.addMessageToSend(msg);
         } catch (Throwable e) {
             Logcat.e(TAG, "Could not set write interest for connection selector", e);
             cleanupConnection(NIOConnection);
             return false;
         }
+
 
         nioSelector.wakeup();
 
@@ -118,9 +104,15 @@ class ServerEventLoop {
 
         return Flowable.<PostmanServerEvent>create(emitter -> {
             Logcat.d(TAG, "Beginning to listen to clients");
-            if (!initialiseServerSocket(emitter)) {
+
+            try {
+                initialiseServerSocket();
+            } catch (Exception e) {
+                shutdownLoop();
+                emitter.onError(e);
                 return;
             }
+
 
             emitter.onNext(PostmanServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
             try {
@@ -160,7 +152,7 @@ class ServerEventLoop {
 
     private void processKeyUpdates(FlowableEmitter<PostmanServerEvent> emitter) {
         nioSelector.selectedKeys().forEach(selectionKey -> {
-            v(TAG, "SK : valid=%b read=%b write%b accept=%b", selectionKey.isValid(), selectionKey.isReadable(), selectionKey.isWritable(), selectionKey.isAcceptable());
+            v(TAG, "SK : valid=%b read=%b write=%b accept=%b", selectionKey.isValid(), selectionKey.isReadable(), selectionKey.isWritable(), selectionKey.isAcceptable());
 
             NIOConnection connection = connectedClientsBySelectionKey.get(selectionKey);
 
@@ -210,31 +202,8 @@ class ServerEventLoop {
     private void handleWrite(SelectionKey selectionKey, FlowableEmitter<PostmanServerEvent> emitter) {
         NIOConnection connection = connectedClientsBySelectionKey.get(selectionKey);
 
-        BlockingQueue<PostmanMessage> messagesForClient = messageQueueForEachClient.get(connection);
-
         try {
-
-            if (isNull(messagesForClient) || messagesForClient.isEmpty()) {
-                connection.unsetWriteInterest();
-                return;
-            }
-
-            while (!messagesForClient.isEmpty()) {
-                PostmanMessage msg = messagesForClient.peek();
-                if (nonNull(msg)) {
-
-                    Logcat.v(TAG, connection.getConnectionId(), "Sending msg : " + msg.toString());
-                    if (connection.sendMessage(msg)) {
-                        messagesForClient.remove(msg);
-                    }
-
-                }
-            }
-
-            if (messagesForClient.isEmpty() && connection.isConnected()) {
-                connection.unsetWriteInterest();
-            }
-
+            connection.sendMessages();
         } catch (Throwable e) {
             Log.e(TAG, "Problem sending message", e);
             cleanupConnection(connection);
@@ -243,24 +212,12 @@ class ServerEventLoop {
     }
 
 
-    private boolean initialiseServerSocket(FlowableEmitter<PostmanServerEvent> emitter) {
-        try {
-            nioSelector = selectorProvider.openSelector();
-            serverSocketChannel = selectorProvider.openServerSocketChannel();
-            ServerSocket serverSocket = serverSocketChannel.socket();
-            serverSocket.setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
-                    Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
-            serverSocket.bind(bindAddress);
-            v(TAG, "Server bound to %s:%d", bindAddress.getAddress().getHostAddress(), serverSocket.getLocalPort());
-            serverSocketChannel.configureBlocking(false);
-            acceptSelectionKey = serverSocketChannel.register(nioSelector,
-                    SelectionKey.OP_ACCEPT);
-            return true;
-        } catch (Exception e) {
-            shutdownLoop();
-            emitter.onError(e);
-            return false;
-        }
+    private void initialiseServerSocket() throws IOException {
+
+        nioSelector = selectorProvider.openSelector();
+        serverSocketChannel = selectorProvider.openServerSocketChannel();
+        acceptSelectionKey = nioConnectionFactory.bindServerSocket(nioSelector, serverSocketChannel, bindAddress);
+
     }
 
     private void acceptClientConnection(FlowableEmitter<PostmanServerEvent> emitter) {
@@ -286,11 +243,6 @@ class ServerEventLoop {
                 connectedClientsBySelectionKey.remove(clientKey);
 
             }
-        }
-
-        if (messageQueueForEachClient.containsKey(client)) {
-            messageQueueForEachClient.get(client).clear();
-            messageQueueForEachClient.remove(client);
         }
 
     }

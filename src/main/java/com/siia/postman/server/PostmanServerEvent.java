@@ -77,7 +77,6 @@ public class PostmanServerEvent {
     }
 
 
-    //TODO remove this and separate out the stream of events
     public static PostmanServerEvent newClient(Connection connection) {
         return new PostmanServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection);
     }

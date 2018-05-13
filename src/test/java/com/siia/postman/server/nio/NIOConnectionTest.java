@@ -7,16 +7,17 @@ import org.junit.Test;
 import org.mockito.Mock;
 
 import java.io.IOException;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.Queue;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 import javax.inject.Provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Matchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -40,16 +41,22 @@ public class NIOConnectionTest {
     @Mock
     private PostmanMessage msg3;
     private ByteBuffer buffer;
-    private Queue<PostmanMessage> readMessages;
     @Mock
     private SelectionKey key;
+    @Mock
+    private SelectorProvider selectorProvider;
+    @Mock
+    private Socket socket;
+    private ByteBuffer buffer2;
+
 
     @Before
-    public void setUp() throws Exception {
+    public void setUp() {
         initMocks(this);
         buffer = ByteBuffer.allocate(100);
-        readMessages = new ConcurrentLinkedQueue<>();
-        connection = new NIOConnection(id, clientSocketChannel, provider, buffer, readMessages);
+        buffer2 = ByteBuffer.allocate(100);
+        connection = new NIOConnection(id, clientSocketChannel, provider, buffer);
+        connection.setSelectionKey(key);
     }
 
     //1 socket read, 1 message read, no filled messages
@@ -305,6 +312,105 @@ public class NIOConnectionTest {
         assertThat(connection.filledMessages()).containsExactly(msg, msg2);
         assertThat(connection.filledMessages()).isEmpty();
 
+
+    }
+
+    @Test
+    public void shouldSetWriteInterestIfValidKey() {
+        when(key.isValid()).thenReturn(true);
+        when(key.interestOps()).thenReturn(SelectionKey.OP_READ);
+        connection.setWriteInterest();
+        verify(key).interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+    }
+
+    @Test
+    public void shouldNotSetWriteInterestIfKeyInvalid() {
+        when(key.isValid()).thenReturn(false);
+        connection.setWriteInterest();
+        verify(key, never()).interestOps(anyInt());
+    }
+
+    @Test
+    public void shouldUnsetWriteInterestIfValidKey() {
+        when(key.isValid()).thenReturn(true);
+        when(key.interestOps()).thenReturn(SelectionKey.OP_READ);
+        connection.unsetWriteInterest();
+        verify(key).interestOps(SelectionKey.OP_READ & ~SelectionKey.OP_WRITE);
+    }
+
+    @Test
+    public void shouldNotUnsetWriteInterestIfKeyInvalid() {
+        when(key.isValid()).thenReturn(false);
+        connection.unsetWriteInterest();
+        verify(key, never()).interestOps(anyInt());
+    }
+
+    @Test
+    public void shouldDisconnectAndClearState() throws IOException {
+        clientSocketChannel = new TestSocketChannel(selectorProvider, socket);
+        connection = new NIOConnection(id, clientSocketChannel, provider, buffer);
+        connection.setSelectionKey(key);
+        connection.disconnect();
+        verify(key).cancel();
+        assertThat(((TestSocketChannel)clientSocketChannel).closed).isTrue();
+        verify(socket).close();
+
+    }
+
+    @Test
+    public void shouldSetWriteInterestWhenAddingMsgToSend() {
+        when(key.isValid()).thenReturn(true);
+        connection.addMessageToSend(msg);
+        verify(key).interestOps(SelectionKey.OP_WRITE);
+
+    }
+
+    @Test
+    public void shouldSendMessage() throws IOException {
+        when(key.isValid()).thenReturn(true);
+        when(msg.frame()).thenReturn(buffer);
+        when(key.readyOps()).thenReturn(SelectionKey.OP_WRITE);
+        when(clientSocketChannel.isConnected()).thenReturn(true);
+        when(clientSocketChannel.write(buffer)).then(invocation -> {
+            buffer.position(buffer.limit());
+            return 100;
+        });
+
+        connection.addMessageToSend(msg);
+        connection.sendMessages();
+
+        verify(key).interestOps(SelectionKey.OP_WRITE);
+        verify(key).interestOps(0);
+        verify(clientSocketChannel).write(buffer);
+
+    }
+
+    @Test
+    public void shouldSendMessages() throws IOException {
+        when(key.isValid()).thenReturn(true);
+        when(msg.frame()).thenReturn(buffer);
+        when(msg2.frame()).thenReturn(buffer2);
+        when(key.readyOps()).thenReturn(SelectionKey.OP_WRITE);
+        when(clientSocketChannel.isConnected()).thenReturn(true);
+
+        when(clientSocketChannel.write(buffer)).then(invocation -> {
+            buffer.position(buffer.limit());
+            return 100;
+        });
+
+        when(clientSocketChannel.write(buffer2)).then(invocation -> {
+            buffer2.position(buffer2.limit());
+            return 100;
+        });
+
+        connection.addMessageToSend(msg);
+        connection.addMessageToSend(msg2);
+        connection.sendMessages();
+
+        verify(key, times(2)).interestOps(SelectionKey.OP_WRITE);
+        verify(key).interestOps(0);
+        verify(clientSocketChannel).write(buffer);
+        verify(clientSocketChannel).write(buffer2);
 
     }
 

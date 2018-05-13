@@ -56,6 +56,10 @@ class TestSelector extends AbstractSelector {
         this.serverEventLoop = serverEventLoop;
     }
 
+    public TestSelector(SelectorProvider selectorProvider) {
+        super(selectorProvider);
+    }
+
 
     @Override
     protected void implCloseSelector() {

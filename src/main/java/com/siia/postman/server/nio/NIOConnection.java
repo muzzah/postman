@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 import javax.inject.Provider;
 
 import static com.siia.commons.core.io.IO.closeQuietly;
+import static java.util.Objects.nonNull;
 
 class NIOConnection implements Connection {
     private static final String TAG = Logcat.getTag();
@@ -29,33 +30,33 @@ class NIOConnection implements Connection {
     private final UUID connectionId;
     private Provider<PostmanMessage> messageProvider;
     private SelectionKey selectionKey;
-    private Queue<PostmanMessage> readMessages;
+    private final Queue<PostmanMessage> readMessages;
+    private final Queue<PostmanMessage> messagesToSend;
 
     NIOConnection(SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider, SelectionKey clientKey) {
-        this(UUID.randomUUID(), clientSocketChannel,messageProvider,  ByteBuffer.allocate(BUFFER_SIZE),
-                new ConcurrentLinkedQueue<>());
+        this(UUID.randomUUID(), clientSocketChannel, messageProvider, ByteBuffer.allocate(BUFFER_SIZE));
         this.selectionKey = clientKey;
     }
 
     NIOConnection(SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider) {
-        this(UUID.randomUUID(), clientSocketChannel,messageProvider,  ByteBuffer.allocate(BUFFER_SIZE),
-                new ConcurrentLinkedQueue<>());
+        this(UUID.randomUUID(), clientSocketChannel, messageProvider, ByteBuffer.allocate(BUFFER_SIZE));
     }
 
 
     NIOConnection(UUID connectionId, SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider,
-                  ByteBuffer buffer, Queue<PostmanMessage> readMessages) {
+                  ByteBuffer buffer) {
         this.clientSocketChannel = clientSocketChannel;
         this.connectionId = connectionId;
         this.messageProvider = messageProvider;
         this.buffer = buffer;
-        this.readMessages = readMessages;
+        this.readMessages = new ConcurrentLinkedQueue<>();
+        this.messagesToSend = new ConcurrentLinkedQueue<>();
     }
 
     void read() throws IOException {
         PostmanMessage currentMessage = readMessages.peek();
 
-        if(currentMessage == null || currentMessage.isFull()) {
+        if (currentMessage == null || currentMessage.isFull()) {
             currentMessage = messageProvider.get();
             readMessages.offer(currentMessage);
         }
@@ -64,12 +65,12 @@ class NIOConnection implements Connection {
 
         int bytesRead;
 
-        while((bytesRead = clientSocketChannel.read(buffer)) > 0) {
+        while ((bytesRead = clientSocketChannel.read(buffer)) > 0) {
 
             Logcat.v(TAG, connectionId, "read %d bytes", bytesRead);
             buffer.flip();
 
-            while(buffer.hasRemaining()) {
+            while (buffer.hasRemaining()) {
                 if (currentMessage.read(buffer)) {
                     //TODO We may have read in less than the frame if a frame over lap occurs here
                     currentMessage = messageProvider.get();
@@ -86,13 +87,13 @@ class NIOConnection implements Connection {
     }
 
     void setWriteInterest() {
-        if(selectionKey.isValid()) {
+        if (selectionKey.isValid()) {
             selectionKey.interestOps(selectionKey.interestOps() | SelectionKey.OP_WRITE);
         }
     }
 
     void unsetWriteInterest() {
-        if(selectionKey.isValid()) {
+        if (selectionKey.isValid()) {
             selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
         }
 
@@ -107,6 +108,8 @@ class NIOConnection implements Connection {
     public void disconnect() {
         selectionKey.cancel();
         closeQuietly(clientSocketChannel);
+        readMessages.clear();
+        messagesToSend.clear();
     }
 
 
@@ -125,16 +128,16 @@ class NIOConnection implements Connection {
         ByteBuffer out = msg.frame();
         int numWritten = 0;
 
-        while (selectionKey.isWritable() && out.hasRemaining() && selectionKey.isValid() && clientSocketChannel.isOpen()) {
+        while (selectionKey.isWritable() && out.hasRemaining() && selectionKey.isValid() && isConnected()) {
             int outBytes = clientSocketChannel.write(out);
             numWritten += outBytes;
-            Logcat.v(TAG,getConnectionId(),"wrote %d / %d bytes",  numWritten, out.limit());
+            Logcat.v(TAG, getConnectionId(), "wrote %d / %d bytes", numWritten, out.limit());
         }
 
         return !out.hasRemaining();
     }
 
-     void setSelectionKey(SelectionKey key) {
+    void setSelectionKey(SelectionKey key) {
         selectionKey = key;
     }
 
@@ -161,6 +164,29 @@ class NIOConnection implements Connection {
                 " }";
     }
 
+    void sendMessages() throws IOException {
+        if (messagesToSend.isEmpty()) {
+            unsetWriteInterest();
+            return;
+        }
+
+        while (!messagesToSend.isEmpty()) {
+            PostmanMessage msg = messagesToSend.peek();
+            if (nonNull(msg)) {
+
+                Logcat.v(TAG, getConnectionId(), "Sending msg : " + msg.toString());
+                if (sendMessage(msg)) {
+                    messagesToSend.remove(msg);
+                }
+
+            }
+        }
+
+        if (messagesToSend.isEmpty() && isConnected()) {
+            unsetWriteInterest();
+        }
+
+    }
 
     List<PostmanMessage> filledMessages() {
         List<PostmanMessage> readyMessages = readMessages.stream().filter(PostmanMessage::isFull).collect(Collectors.toList());
@@ -171,5 +197,15 @@ class NIOConnection implements Connection {
     @Override
     public int compareTo(@NonNull Connection o) {
         return o.getConnectionId().compareTo(connectionId);
+    }
+
+    public void addMessageToSend(PostmanMessage msg) {
+        if (!messagesToSend.offer(msg)) {
+            Logcat.e(TAG, "Could not add message [%s] to queue, dropping", msg.toString());
+            return;
+        }
+
+        setWriteInterest();
+
     }
 }

@@ -43,7 +43,7 @@ public class NIOPostmanClient implements PostmanClient {
     private final Scheduler newThreadScheduler;
 
 
-    public NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler ioScheduler, Scheduler newThreadScheduler) {
+    NIOPostmanClient(Scheduler computation, Provider<PostmanMessage> messageProvider, Scheduler ioScheduler, Scheduler newThreadScheduler) {
         this.computation = computation;
         this.messageProvider = messageProvider;
         this.ioScheduler = ioScheduler;

@@ -1,6 +1,5 @@
 package com.siia.postman.server.nio;
 
-import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServerEvent;
 
@@ -24,7 +23,6 @@ import io.reactivex.schedulers.TestScheduler;
 import io.reactivex.subscribers.TestSubscriber;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -74,51 +72,20 @@ public class ServerEventLoopTest {
     }
 
 
-    @Test
-    public void shouldSetPerfSettingsWhenBindingSocket() throws IOException {
-        setupBindingMockCalls();
-        startLooping(true);
-
-        verify(serverSocket).setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
-                Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
-
-    }
-
-
-    @Test
-    public void shouldBindToGivenAddress() throws IOException {
-        setupBindingMockCalls();
-        startLooping(true);
-
-        verify(serverSocket).bind(bindAddress);
-    }
-
-    @Test
-    public void shouldConfigureSocketToBlocking() throws IOException {
-        setupBindingMockCalls();
-        startLooping(true);
-
-        assertThat(serverSocketChannel.blocking).isFalse();
-    }
-
-    @Test
-    public void shouldRegisterSocketForAccepting() throws IOException {
-        setupBindingMockCalls();
-        startLooping(true);
-
-        assertThat(serverSelector.registrationOps.get(serverSocketChannel)).isEqualTo(SelectionKey.OP_ACCEPT);
-        assertThat(serverSelector.registrationCount).isEqualTo(1);
-    }
 
     @Test
     public void shouldSendErrorThroughAndShutdownIfProblemWhenBinding() throws IOException {
         setupBindingMockCalls();
-        doThrow(IOException.class).when(serverSocket).bind(any());
+        doThrow(IOException.class).when(nioConnectionFactory).bindServerSocket(serverSelector, serverSocketChannel, bindAddress);
         startLooping(false);
         testSubscriber.assertError(IOException.class);
-        verify(serverSocket).close();
-        assertThat(serverSocketChannel.closed).isTrue();
-        assertThat(serverSelector.closed).isTrue();
+    }
+
+    @Test
+    public void shouldBindServerSocketUsingFactory() throws IOException {
+        setupBindingMockCalls();
+        startLooping(false);
+        verify(nioConnectionFactory).bindServerSocket(serverSelector, serverSocketChannel, bindAddress);
     }
 
     @Test
@@ -227,7 +194,7 @@ public class ServerEventLoopTest {
         serverSelector.addSelectionKeyToReturn(clientSelectionKey);
         when(clientSelectionKey.isValid()).thenReturn(true);
         when(clientSelectionKey.readyOps()).thenReturn(SelectionKey.OP_WRITE);
-        when(nioConnection.sendMessage(msg)).thenThrow(IOException.class);
+        doThrow(IOException.class).when(nioConnection).sendMessages();
         when(nioConnection.isConnected()).thenReturn(true);
 
         setupBindingMockCalls();
@@ -235,8 +202,8 @@ public class ServerEventLoopTest {
 
         InOrder inOrder = inOrder(nioConnection);
 
-        inOrder.verify(nioConnection).setWriteInterest();
-        inOrder.verify(nioConnection).sendMessage(msg);
+        inOrder.verify(nioConnection).addMessageToSend(msg);
+        inOrder.verify(nioConnection).sendMessages();
         inOrder.verify(nioConnection).disconnect();
 
         testSubscriber.assertValueCount(3)
@@ -259,8 +226,7 @@ public class ServerEventLoopTest {
         startLooping(true);
 
 
-        verify(nioConnection, never()).setWriteInterest();
-        verify(nioConnection, never()).sendMessage(msg);
+        verify(nioConnection, never()).addMessageToSend(msg);
         assertThat(serverSelector.wakeupCount).isZero();
     }
 
@@ -280,9 +246,7 @@ public class ServerEventLoopTest {
 
         InOrder inOrder = inOrder(nioConnection);
 
-        inOrder.verify(nioConnection).setWriteInterest();
-        inOrder.verify(nioConnection).sendMessage(msg);
-        inOrder.verify(nioConnection).unsetWriteInterest();
+        inOrder.verify(nioConnection).addMessageToSend(msg);
 
         assertThat(serverSelector.wakeupCount).isEqualTo(1);
 
