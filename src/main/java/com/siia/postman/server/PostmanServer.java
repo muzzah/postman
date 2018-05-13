@@ -2,14 +2,11 @@ package com.siia.postman.server;
 
 import android.support.annotation.AnyThread;
 import android.support.annotation.NonNull;
-import android.support.annotation.WorkerThread;
 
 import com.google.protobuf.MessageLite;
 
 import java.net.InetSocketAddress;
 import java.util.UUID;
-
-import javax.inject.Singleton;
 
 import io.reactivex.Flowable;
 
@@ -18,9 +15,9 @@ public interface PostmanServer {
 
 
     @AnyThread
-    Flowable<ServerEvent> serverStart(@NonNull InetSocketAddress bindAddress);
+    Flowable<PostmanServerEvent> serverStart(@NonNull InetSocketAddress bindAddress);
 
-    @WorkerThread
+    @AnyThread
     void stopServer();
 
     @AnyThread
@@ -37,9 +34,6 @@ public interface PostmanServer {
 
     @AnyThread
     int numberOfClients();
-
-    @WorkerThread
-    void disconnectClient(@NonNull UUID uuid);
 
     @AnyThread
     void sendMessage(MessageLite msg, UUID uuid);

@@ -9,9 +9,6 @@ import java.util.Objects;
 
 public class PostmanClientEvent {
 
-
-
-
     public enum Type {
         CONNECTED,
         DISCONNECTED,

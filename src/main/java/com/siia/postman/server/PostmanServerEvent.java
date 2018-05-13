@@ -9,14 +9,14 @@ import java.util.UUID;
 
 import static java.util.Objects.nonNull;
 
-public class ServerEvent {
+public class PostmanServerEvent {
 
 
     private enum Attribute {
         CLIENT,
         LISTENING_PORT,
         IP_ADDRESS,
-        CLIENT_COUNT, MESSAGE
+        MESSAGE
     }
 
     public enum Type {
@@ -30,14 +30,11 @@ public class ServerEvent {
     private final Type type;
     private final Map<Attribute, Object> attributes;
 
-    private ServerEvent(Type type) {
+    private PostmanServerEvent(Type type) {
         this.type = type;
         this.attributes = new HashMap<>();
     }
 
-    public Integer numberOfClients() {
-        return (Integer) attributes.get(Attribute.CLIENT_COUNT);
-    }
 
     public Type type() {
         return type;
@@ -69,32 +66,28 @@ public class ServerEvent {
     }
 
 
-    private ServerEvent attribute(Attribute attribute, Object value) {
+    private PostmanServerEvent attribute(Attribute attribute, Object value) {
         attributes.put(attribute, value);
         return this;
     }
 
-    public static ServerEvent serverListening(int port, String hostAddress) {
-        return new ServerEvent(Type.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT, port)
+    public static PostmanServerEvent serverListening(int port, String hostAddress) {
+        return new PostmanServerEvent(Type.SERVER_LISTENING).attribute(Attribute.LISTENING_PORT, port)
                 .attribute(Attribute.IP_ADDRESS, hostAddress);
     }
 
 
-    public static ServerEvent newClient(Connection connection, int numberOfClients) {
-        return new ServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection).attribute(Attribute.CLIENT_COUNT, numberOfClients);
-    }
-
     //TODO remove this and separate out the stream of events
-    public static ServerEvent newClient(Connection connection) {
-        return new ServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection);
+    public static PostmanServerEvent newClient(Connection connection) {
+        return new PostmanServerEvent(Type.CLIENT_JOIN).attribute(Attribute.CLIENT, connection);
     }
 
-    public static ServerEvent clientDisconnected(Connection client) {
-        return new ServerEvent(Type.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, client);
+    public static PostmanServerEvent clientDisconnected(Connection client) {
+        return new PostmanServerEvent(Type.CLIENT_DISCONNECT).attribute(Attribute.CLIENT, client);
     }
 
-    public static ServerEvent newMessage(PostmanMessage msg, Connection client) {
-        return new ServerEvent(Type.NEW_MESSAGE).attribute(Attribute.MESSAGE, msg).attribute(Attribute.CLIENT, client);
+    public static PostmanServerEvent newMessage(PostmanMessage msg, Connection client) {
+        return new PostmanServerEvent(Type.NEW_MESSAGE).attribute(Attribute.MESSAGE, msg).attribute(Attribute.CLIENT, client);
     }
 
     @Override
@@ -104,19 +97,14 @@ public class ServerEvent {
 
     @Override
     public boolean equals(Object obj) {
-        return nonNull(obj) && obj instanceof ServerEvent &&
-                new EqualsBuilder().append(type, ((ServerEvent) obj).type)
-                        .append(attributes, ((ServerEvent) obj).attributes).isEquals();
-    }
-
-
-    public static boolean isClientJoinDisconnectEvent(ServerEvent serverEvent) {
-        return serverEvent.type == Type.CLIENT_JOIN || serverEvent.type == Type.CLIENT_DISCONNECT;
+        return nonNull(obj) && obj instanceof PostmanServerEvent &&
+                new EqualsBuilder().append(type, ((PostmanServerEvent) obj).type)
+                        .append(attributes, ((PostmanServerEvent) obj).attributes).isEquals();
     }
 
     @Override
     public String toString() {
-        return "ServerEvent{" +
+        return "PostmanServerEvent{" +
                 "type=" + type +
                 ", attributes=" + attributes +
                 '}';

@@ -135,6 +135,7 @@ public class NIOPostmanClient implements PostmanClient {
             socketChannel.socket().setKeepAlive(true);
             socketChannel.socket().setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
                     Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
+
             if (!socketChannel.connect(new InetSocketAddress(host, port))) {
                 Logcat.d(TAG, "connect return false, still connecting possibly");
             }
@@ -173,7 +174,7 @@ public class NIOPostmanClient implements PostmanClient {
         }
 
         if (nonNull(client)) {
-            client.destroy();
+            client.disconnect();
         }
 
         disposables.clear();
@@ -188,7 +189,7 @@ public class NIOPostmanClient implements PostmanClient {
 
     @Override
     public boolean isConnected() {
-        return client != null && client.isValid() && messageRouter != null && messageRouter.isRunning();
+        return client != null && client.isConnected() && messageRouter != null && messageRouter.isRunning();
     }
 
 }

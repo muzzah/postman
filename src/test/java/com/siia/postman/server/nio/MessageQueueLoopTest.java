@@ -82,7 +82,7 @@ public class MessageQueueLoopTest {
         messageQueueLoop.addClient(client);
         scheduler.triggerActions();
 
-        verify(client).destroy();
+        verify(client).disconnect();
         assertThat(selector.closed).isTrue();
         readySubscriber.assertNoErrors()
                 .assertComplete();
@@ -178,16 +178,15 @@ public class MessageQueueLoopTest {
 
         msgSubscriber.assertValueCount(1)
                 .assertValue(MessageQueueEvent.clientRegistrationFailed(client));
-        verify(client).destroy();
+        verify(client).disconnect();
     }
 
     @Test
     public void shouldCleanupConnectionWithInvalidKey() {
         selector.closeOnThirdSelect = true;
-        selector.returnKeyAfterRegistration = true;
         when(client.channel()).thenReturn(socketChannel);
         when(client.selectionKey()).thenReturn(selectionKey);
-        selector.selectedKeys.add(selectionKey);
+        selector.addSelectionKeyToReturn(selectionKey);
 
         when(selectionKey.isValid()).thenReturn(false);
 
@@ -200,21 +199,20 @@ public class MessageQueueLoopTest {
         msgSubscriber.assertValueCount(2)
                 .assertValues(MessageQueueEvent.clientRegistered(client), MessageQueueEvent.clientUnregistered(client));
 
-        verify(client).destroy();
+        verify(client).disconnect();
     }
 
     @Test
     public void shouldReadAndNotifyOfMessage() throws IOException {
         selector.closeOnThirdSelect = true;
-        selector.returnKeyAfterRegistration = true;
         when(client.channel()).thenReturn(socketChannel);
         when(client.selectionKey()).thenReturn(selectionKey);
-        selector.selectedKeys.add(selectionKey);
+        selector.addSelectionKeyToReturn(selectionKey);
 
         when(selectionKey.isValid()).thenReturn(true);
         when(selectionKey.readyOps()).thenReturn(SelectionKey.OP_READ);
         when(client.filledMessages()).thenReturn(Lists.newArrayList(postmanMessage));
-        when(client.isValid()).thenReturn(true);
+        when(client.isConnected()).thenReturn(true);
 
         messageQueueLoop.messageQueueEventsStream().subscribe(msgSubscriber);
         messageQueueLoop.startMessageQueueLoop()
@@ -231,15 +229,14 @@ public class MessageQueueLoopTest {
     @Test
     public void shouldCleanupConnectionIfErrorOccursDuringReading() throws IOException {
         selector.closeOnThirdSelect = true;
-        selector.returnKeyAfterRegistration = true;
         when(client.channel()).thenReturn(socketChannel);
         when(client.selectionKey()).thenReturn(selectionKey);
-        selector.selectedKeys.add(selectionKey);
+        selector.addSelectionKeyToReturn(selectionKey);
 
         when(selectionKey.isValid()).thenReturn(true);
         when(selectionKey.readyOps()).thenReturn(SelectionKey.OP_READ);
         doThrow(IOException.class).when(client).read();
-        when(client.isValid()).thenReturn(false);
+        when(client.isConnected()).thenReturn(false);
 
         messageQueueLoop.messageQueueEventsStream().subscribe(msgSubscriber);
         messageQueueLoop.startMessageQueueLoop()
@@ -250,7 +247,7 @@ public class MessageQueueLoopTest {
         msgSubscriber.assertValueCount(2)
                 .assertValueAt(1, MessageQueueEvent.clientUnregistered(client));
 
-        verify(client).destroy();
+        verify(client).disconnect();
         verify(client, never()).filledMessages();
     }
 
@@ -261,8 +258,9 @@ public class MessageQueueLoopTest {
 
         when(client.channel()).thenReturn(socketChannel);
         when(client.selectionKey()).thenReturn(selectionKey);
-        when(client.isValid()).thenReturn(true);
-        selector.selectedKeys.add(selectionKey);
+        when(client.isConnected()).thenReturn(true);
+        selector.addSelectionKeyToReturn(selectionKey);
+        selector.addSelectionKeyToReturn(selectionKey);
 
         when(selectionKey.isValid()).thenReturn(true);
         when(selectionKey.readyOps()).thenReturn(SelectionKey.OP_WRITE);
@@ -290,7 +288,7 @@ public class MessageQueueLoopTest {
         selector.addMessageOnSecondSelect = true;
 
         when(client.channel()).thenReturn(socketChannel);
-        when(client.isValid()).thenReturn(false);
+        when(client.isConnected()).thenReturn(false);
 
         messageQueueLoop.messageQueueEventsStream().subscribe(msgSubscriber);
         messageQueueLoop.startMessageQueueLoop()
@@ -308,11 +306,10 @@ public class MessageQueueLoopTest {
     @Test
     public void shouldUnsetWriteInterestIfMessageQueueForConnectionEmpty() {
         selector.closeOnThirdSelect = true;
-        selector.returnKeyAfterRegistration = true;
 
         when(client.channel()).thenReturn(socketChannel);
 
-        selector.selectedKeys.add(selectionKey);
+        selector.addSelectionKeyToReturn(selectionKey);
         when(selectionKey.readyOps()).thenReturn(SelectionKey.OP_WRITE);
         when(selectionKey.isValid()).thenReturn(true);
 
@@ -332,12 +329,13 @@ public class MessageQueueLoopTest {
 
         when(client.channel()).thenReturn(socketChannel);
 
-        selector.selectedKeys.add(selectionKey);
+        selector.addSelectionKeyToReturn(null);
+        selector.addSelectionKeyToReturn(selectionKey);
         when(selectionKey.readyOps()).thenReturn(SelectionKey.OP_WRITE);
         when(selectionKey.isValid()).thenReturn(true);
         when(client.sendMessage(postmanMessage)).thenThrow(IOException.class);
 
-        when(client.isValid()).thenReturn(true, false);
+        when(client.isConnected()).thenReturn(true, false);
         when(client.selectionKey()).thenReturn(selectionKey);
 
         messageQueueLoop.messageQueueEventsStream().subscribe(msgSubscriber);
@@ -346,7 +344,7 @@ public class MessageQueueLoopTest {
         messageQueueLoop.addClient(client);
         scheduler.triggerActions();
 
-        verify(client).destroy();
+        verify(client).disconnect();
         verify(client, never()).unsetWriteInterest();
         msgSubscriber.assertValueCount(2)
                 .assertValueAt(1, MessageQueueEvent.clientUnregistered(client));

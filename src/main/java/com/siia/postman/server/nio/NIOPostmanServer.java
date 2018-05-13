@@ -1,14 +1,14 @@
 package com.siia.postman.server.nio;
 
+import android.support.annotation.AnyThread;
 import android.support.annotation.NonNull;
-import android.support.annotation.WorkerThread;
 
 import com.google.protobuf.MessageLite;
 import com.siia.commons.core.log.Logcat;
 import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
-import com.siia.postman.server.ServerEvent;
+import com.siia.postman.server.PostmanServerEvent;
 
 import java.net.InetSocketAddress;
 import java.util.Optional;
@@ -50,13 +50,6 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
-    @WorkerThread
-    public void disconnectClient(@NonNull UUID uuid) {
-        //TODO
-        throw new UnsupportedOperationException("Need to impelment this still");
-    }
-
-    @Override
     public void sendMessage(MessageLite msg, UUID connectionId) {
         Optional<NIOConnection> connection = serverEventLoop.getClients()
                 .parallelStream()
@@ -71,7 +64,7 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
-    public Flowable<ServerEvent> serverStart(@NonNull InetSocketAddress bindAddress) {
+    public Flowable<PostmanServerEvent> serverStart(@NonNull InetSocketAddress bindAddress) {
         if (isRunning()) {
             Logcat.w(TAG, "Server already running");
             return Flowable.error(new IllegalStateException("Already running"));
@@ -83,7 +76,7 @@ public class NIOPostmanServer implements PostmanServer {
     }
 
     @Override
-    @WorkerThread
+    @AnyThread
     public void stopServer() {
         if (!isRunning()) {
             Logcat.w(TAG, "Server is not running");

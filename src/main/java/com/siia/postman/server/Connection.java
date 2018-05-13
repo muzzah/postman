@@ -11,7 +11,8 @@ public interface Connection extends Comparable<Connection> {
 
     UUID getConnectionId();
 
+    void disconnect();
 
-    boolean isValid();
+    boolean isConnected();
 
 }

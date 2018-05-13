@@ -24,7 +24,7 @@ public class PostmanMessageTest {
     }
 
     @Test
-    public void messageShouldBeFilled() throws InvalidProtocolBufferException, InvocationTargetException, ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
+    public void messageShouldBeFilled() {
         PostmanMessage message = new PostmanMessage(ok);
         assertThat(message.isFull()).isTrue();
 

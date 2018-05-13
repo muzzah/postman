@@ -86,17 +86,16 @@ class NIOConnection implements Connection {
     }
 
     void setWriteInterest() {
-        selectionKey.interestOps(selectionKey.interestOps() | SelectionKey.OP_WRITE);
+        if(selectionKey.isValid()) {
+            selectionKey.interestOps(selectionKey.interestOps() | SelectionKey.OP_WRITE);
+        }
     }
 
     void unsetWriteInterest() {
-        selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
+        if(selectionKey.isValid()) {
+            selectionKey.interestOps(selectionKey.interestOps() & ~SelectionKey.OP_WRITE);
+        }
 
-    }
-
-    void destroy() {
-        selectionKey.cancel();
-        closeQuietly(clientSocketChannel);
     }
 
     @Override
@@ -104,9 +103,15 @@ class NIOConnection implements Connection {
         return connectionId;
     }
 
+    @Override
+    public void disconnect() {
+        selectionKey.cancel();
+        closeQuietly(clientSocketChannel);
+    }
+
 
     @Override
-    public boolean isValid() {
+    public boolean isConnected() {
         //Adding selector key validity check here causes potential race condition with adding message to queue
         // as the key is registered in the message queue loop
         return clientSocketChannel.isConnected();

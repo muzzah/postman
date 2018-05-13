@@ -3,23 +3,25 @@ package com.siia.postman.server.nio;
 import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 
+import org.mockito.internal.util.collections.Sets;
+
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.spi.AbstractSelectableChannel;
 import java.nio.channels.spi.AbstractSelector;
 import java.nio.channels.spi.SelectorProvider;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 
 class TestSelector extends AbstractSelector {
     public boolean closeAfterRegistration = false;
-    public Set<SelectionKey> selectedKeys = new HashSet<>();
+    private Queue<Set<SelectionKey>> selectedKeysToReturnInOrder = new ArrayDeque<>();
     public boolean throwAndCloseAfterRegistration = false;
-    public boolean returnKeyAfterRegistration = false;
     public boolean closeOnThirdSelect = false;
     public boolean addMessageOnSecondSelect = false;
     public int registrationCount = 0;
@@ -33,9 +35,12 @@ class TestSelector extends AbstractSelector {
     private PostmanMessage postmanMessage;
     private Connection client;
     private SelectionKey selectionKey;
+    private ServerEventLoop serverEventLoop;
     public boolean closed;
+    private Set<SelectionKey> keysToReturn;
 
-    protected TestSelector(SelectorProvider provider, MessageQueueLoop messageQueueLoop, PostmanMessage postmanMessage, Connection client, SelectionKey selectionKey) {
+    protected TestSelector(SelectorProvider provider, MessageQueueLoop messageQueueLoop, PostmanMessage postmanMessage, Connection client,
+                           SelectionKey selectionKey) {
         super(provider);
         this.messageQueueLoop = messageQueueLoop;
         this.postmanMessage = postmanMessage;
@@ -43,8 +48,12 @@ class TestSelector extends AbstractSelector {
         this.selectionKey = selectionKey;
     }
 
-    public TestSelector(SelectorProvider selectorProvider) {
+    public TestSelector(SelectorProvider selectorProvider, PostmanMessage postmanMessage, Connection client, SelectionKey selectionKey, ServerEventLoop serverEventLoop) {
         super(selectorProvider);
+        this.postmanMessage = postmanMessage;
+        this.client = client;
+        this.selectionKey = selectionKey;
+        this.serverEventLoop = serverEventLoop;
     }
 
 
@@ -82,7 +91,7 @@ class TestSelector extends AbstractSelector {
 
     @Override
     public Set<SelectionKey> selectedKeys() {
-        return returnKeyAfterRegistration || (addMessageOnSecondSelect && selectCount == 2) ? selectedKeys : Collections.emptySet();
+        return keysToReturn;
     }
 
     @Override
@@ -100,7 +109,13 @@ class TestSelector extends AbstractSelector {
         selectCount++;
 
         if(addMessageOnSecondSelect && selectCount == 2) {
-            messageQueueLoop.addMessageToQueue(postmanMessage, client);
+            if(messageQueueLoop != null) {
+                messageQueueLoop.addMessageToQueue(postmanMessage, client);
+            }
+
+            if(serverEventLoop != null) {
+                serverEventLoop.addMessageToQueue(postmanMessage, client);
+            }
         }
 
         if(closeOnThirdSelect && selectCount == 3) {
@@ -111,13 +126,19 @@ class TestSelector extends AbstractSelector {
             messageQueueLoop.shutdown();
         }
 
-        return 0;
+        keysToReturn = selectedKeysToReturnInOrder.peek() == null ? Collections.emptySet() : selectedKeysToReturnInOrder.poll();
+        return keysToReturn.size();
     }
 
     @Override
     public Selector wakeup() {
         wakeupCount++;
         return this;
+    }
+
+    public void addSelectionKeyToReturn(SelectionKey... selectionKey) {
+        Set<SelectionKey> keys = selectionKey == null ? Collections.emptySet() : Sets.newSet(selectionKey);
+        selectedKeysToReturnInOrder.offer(keys);
     }
 
 }

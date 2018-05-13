@@ -64,7 +64,7 @@ class MessageQueueLoop {
 
     void shutdown() {
         shouldLoop.set(false);
-        connectedClientsBySelectionKey.values().forEach(NIOConnection::destroy);
+        connectedClientsBySelectionKey.values().forEach(NIOConnection::disconnect);
         connectedClientsBySelectionKey.clear();
 
         clientsToRegister.clear();
@@ -87,7 +87,7 @@ class MessageQueueLoop {
 
         NIOConnection NIOConnection = (NIOConnection) destination;
 
-        if (!NIOConnection.isValid()) {
+        if (!NIOConnection.isConnected()) {
             Logcat.w(TAG, "Not adding message [%s] to queue with invalid connection [%s]", msg.toString(), destination.toString());
             return false;
         }
@@ -116,7 +116,7 @@ class MessageQueueLoop {
 
     private void cleanupConnection(NIOConnection client) {
         Logcat.v(TAG, "Destroying connection %s", client.getConnectionId());
-        client.destroy();
+        client.disconnect();
         SelectionKey clientKey = client.selectionKey();
         if (client.selectionKey() != null) {
 
@@ -226,7 +226,7 @@ class MessageQueueLoop {
                     cleanupConnection(connection);
                 }
 
-                if(connection.isValid()) {
+                if(connection.isConnected()) {
                     connection.filledMessages().forEach(msg -> {
                         Logcat.v(TAG, "Message received [%s]", msg.toString());
 
@@ -259,7 +259,7 @@ class MessageQueueLoop {
                     }
                 }
 
-                if(messagesForClient.isEmpty() && connection.isValid()) {
+                if(messagesForClient.isEmpty() && connection.isConnected()) {
                     connection.unsetWriteInterest();
                 }
 
@@ -277,7 +277,7 @@ class MessageQueueLoop {
                 clientKey = client.channel().register(readWriteSelector, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
             } catch (Throwable e) {
                 Log.e(TAG, "Connected connection disconnected before write ops registration", e);
-                client.destroy();
+                client.disconnect();
                 messageRouterEventStream.onNext(MessageQueueEvent.clientRegistrationFailed(client));
                 return;
             }
