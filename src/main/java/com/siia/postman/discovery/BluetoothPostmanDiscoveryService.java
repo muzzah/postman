@@ -25,7 +25,6 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
     private final BluetoothBroadcaster bluetoothBroadcaster;
     private final BluetoothDiscoverer bluetoothDiscoverer;
     private final AtomicBoolean isBroadcasting;
-    private final AtomicBoolean isDiscovering;
     private final Scheduler io;
 
 
@@ -37,14 +36,13 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
         this.bluetoothDiscoverer = bluetoothDiscoverer;
         this.io = io;
         this.isBroadcasting = new AtomicBoolean(false);
-        this.isDiscovering = new AtomicBoolean(false);
     }
 
     @Override
     public Flowable<PostmanBroadcastEvent> startServiceBroadcast(@NonNull String serviceName, int port, @NonNull InetAddress hostAddress) {
 
         return Flowable.<PostmanBroadcastEvent>fromPublisher(subsciber -> {
-            if(isBroadcasting.compareAndSet(false, true)) {
+            if (isBroadcasting.compareAndSet(false, true)) {
                 Logcat.i(TAG, "Starting service broadcast");
                 Logcat.v(TAG, "advertisingData=%s", serviceName);
                 try {
@@ -54,7 +52,7 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
                      * Should not be a problem though
                      */
                     bluetoothBroadcaster.beginBroadcast(serviceName, subsciber);
-                } catch(Throwable e) {
+                } catch (Throwable e) {
                     Logcat.e(TAG, "Problem while beginning broadcast", e);
                     subsciber.onError(e);
                 } finally {
@@ -81,18 +79,12 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
     public Flowable<PostmanDiscoveryEvent> discoverService(@NonNull String serviceName, @NonNull InetAddress addressToSearchOn) {
 
         return Flowable.<PostmanDiscoveryEvent>fromPublisher(subscriber -> {
-            if (isDiscovering.compareAndSet(false, true)) {
-                try {
-                    bluetoothDiscoverer.findService(serviceName, subscriber);
-                } catch(Throwable e) {
-                    subscriber.onError(e);
-                } finally {
-                    isDiscovering.set(false);
-                }
-
-            } else {
-                subscriber.onNext(PostmanDiscoveryEvent.alreadyDiscovering());
+            try {
+                bluetoothDiscoverer.findService(serviceName, subscriber);
                 subscriber.onComplete();
+            } catch (Throwable e) {
+                subscriber.onError(e);
+
             }
         }).subscribeOn(io);
 
@@ -100,9 +92,7 @@ public class BluetoothPostmanDiscoveryService implements PostmanDiscoveryService
 
     @Override
     public void stopDiscovery() {
-        if (isDiscovering.compareAndSet(true, false)) {
-            bluetoothDiscoverer.stopDiscovery();
-        }
+        bluetoothDiscoverer.stopDiscovery();
     }
 
 }

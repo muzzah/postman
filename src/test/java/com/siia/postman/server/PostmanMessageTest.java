@@ -32,14 +32,14 @@ public class PostmanMessageTest {
 
 
     @Test
-    public void messageShouldSpecifyCorrectType() throws InvalidProtocolBufferException, InvocationTargetException, ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
+    public void messageShouldSpecifyCorrectType() throws InvalidProtocolBufferException {
         PostmanMessage message = new PostmanMessage(ok);
         assertThat(message.isOfType(Response.class)).isTrue();
 
     }
 
     @Test
-    public void messageShouldSpecifyIncorrectType() throws InvalidProtocolBufferException, InvocationTargetException, ClassNotFoundException, NoSuchMethodException, IllegalAccessException {
+    public void messageShouldSpecifyIncorrectType() throws InvalidProtocolBufferException {
         PostmanMessage message = new PostmanMessage(ok);
         assertThat(message.isOfType(AbstractMessageLite.class)).isFalse();
 

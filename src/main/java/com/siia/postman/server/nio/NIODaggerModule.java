@@ -2,13 +2,11 @@ package com.siia.postman.server.nio;
 
 import com.siia.commons.core.rx.SchedulersModule;
 import com.siia.postman.server.PostmanClient;
-import com.siia.postman.server.PostmanMessage;
 import com.siia.postman.server.PostmanServer;
 
 import java.nio.channels.spi.SelectorProvider;
 
 import javax.inject.Named;
-import javax.inject.Provider;
 
 import dagger.Module;
 import dagger.Provides;
@@ -26,11 +24,10 @@ public class NIODaggerModule {
     }
 
     @Provides
-    PostmanClient providesPostmanClient(@Named("computation") Scheduler computation,
-                                        @Named("io") Scheduler ioScheduler,
+    PostmanClient providesPostmanClient(SelectorProvider selectorProvider,
                                         @Named("new") Scheduler newThreadScheduler,
-                                        Provider<PostmanMessage> messageProvider) {
-        return new NIOPostmanClient(computation, messageProvider, ioScheduler, newThreadScheduler);
+                                        NIOConnectionFactory nioConnectionFactory) {
+        return new NIOPostmanClient(newThreadScheduler, selectorProvider, nioConnectionFactory);
     }
 
     @Provides

@@ -22,7 +22,7 @@ import static com.siia.commons.core.check.Check.checkState;
 /**
  * Postman Message Structure
  * <p>
- * HEADER [4 bytes] + BODY [N Bytes]
+ * HEADER [4 bytes - Size of message] + BODY [N Bytes]
  * <p>
  * Body has to be at least one byte
  * MAX is 1 MB per message (Look into aligning this with TCP Frame size?)
@@ -100,8 +100,7 @@ public class PostmanMessage {
     }
 
     @SuppressWarnings("unchecked")
-    public boolean isOfType(Class<? extends AbstractMessageLite> type) throws InvalidProtocolBufferException,
-            IllegalAccessException, InvocationTargetException, ClassNotFoundException, NoSuchMethodException{
+    public boolean isOfType(Class<? extends AbstractMessageLite> type) throws InvalidProtocolBufferException {
         ByteBuffer body = getBody();
         byte[] bodyBuffer = body.array();
         MessageOuterClass.Message innerFrameMsg = MessageOuterClass.Message.parseFrom(bodyBuffer);

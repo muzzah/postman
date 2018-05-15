@@ -28,10 +28,8 @@ class TestSelector extends AbstractSelector {
     public int expectedRegistration = 0;
     public int selectCount = 0;
     public int wakeupCount = 0;
-    public boolean shutDownAfterSecondSelect;
 
     public Map<AbstractSelectableChannel, Integer> registrationOps = new HashMap<>();
-    private MessageQueueLoop messageQueueLoop;
     private PostmanMessage postmanMessage;
     private Connection client;
     private SelectionKey selectionKey;
@@ -39,16 +37,8 @@ class TestSelector extends AbstractSelector {
     public boolean closed;
     private Set<SelectionKey> keysToReturn;
 
-    protected TestSelector(SelectorProvider provider, MessageQueueLoop messageQueueLoop, PostmanMessage postmanMessage, Connection client,
-                           SelectionKey selectionKey) {
-        super(provider);
-        this.messageQueueLoop = messageQueueLoop;
-        this.postmanMessage = postmanMessage;
-        this.client = client;
-        this.selectionKey = selectionKey;
-    }
-
-    public TestSelector(SelectorProvider selectorProvider, PostmanMessage postmanMessage, Connection client, SelectionKey selectionKey, ServerEventLoop serverEventLoop) {
+    public TestSelector(SelectorProvider selectorProvider, PostmanMessage postmanMessage, Connection client, SelectionKey selectionKey,
+                        ServerEventLoop serverEventLoop) {
         super(selectorProvider);
         this.postmanMessage = postmanMessage;
         this.client = client;
@@ -113,10 +103,6 @@ class TestSelector extends AbstractSelector {
         selectCount++;
 
         if(addMessageOnSecondSelect && selectCount == 2) {
-            if(messageQueueLoop != null) {
-                messageQueueLoop.addMessageToQueue(postmanMessage, client);
-            }
-
             if(serverEventLoop != null) {
                 serverEventLoop.addMessageToQueue(postmanMessage, client);
             }
@@ -126,9 +112,6 @@ class TestSelector extends AbstractSelector {
             close();
         }
 
-        if(shutDownAfterSecondSelect && selectCount == 2) {
-            messageQueueLoop.shutdown();
-        }
 
         keysToReturn = selectedKeysToReturnInOrder.peek() == null ? Collections.emptySet() : selectedKeysToReturnInOrder.poll();
         return keysToReturn.size();

@@ -3,22 +3,23 @@ package com.siia.postman.server;
 
 import android.support.annotation.NonNull;
 
+import org.apache.commons.lang3.builder.EqualsBuilder;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+
+import static java.util.Objects.nonNull;
 
 public class PostmanClientEvent {
 
     public enum Type {
         CONNECTED,
-        DISCONNECTED,
         NEW_MESSAGE,
-        IGNORE
     }
 
     private enum Attribute {
-        MESSAGE,
-        CLIENT_ID
+        MESSAGE
     }
 
     private Map<Attribute, Object> attributes;
@@ -52,28 +53,21 @@ public class PostmanClientEvent {
         return new PostmanClientEvent(Type.CONNECTED);
     }
 
-    public static PostmanClientEvent clientDisconnected() {
-        return new PostmanClientEvent(Type.DISCONNECTED);
-    }
-
-    public static PostmanClientEvent newMessage(@NonNull Connection client, @NonNull PostmanMessage msg) {
-        return new PostmanClientEvent(Type.NEW_MESSAGE).addAttribute(Attribute.MESSAGE, msg)
-                .addAttribute(Attribute.CLIENT_ID, client.getConnectionId());
-    }
-    public static PostmanClientEvent ignoreEvent() {
-        return new PostmanClientEvent(Type.IGNORE);
+    public static PostmanClientEvent newMessage(@NonNull PostmanMessage msg) {
+        return new PostmanClientEvent(Type.NEW_MESSAGE).addAttribute(Attribute.MESSAGE, msg);
     }
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        PostmanClientEvent that = (PostmanClientEvent) o;
-        return type == that.type;
+        return nonNull(o) && o instanceof PostmanClientEvent
+                && new EqualsBuilder()
+                .append(type, ((PostmanClientEvent) o).type)
+                .append(attributes, ((PostmanClientEvent) o).attributes)
+                .isEquals();
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(type);
+        return Objects.hash(type, attributes);
     }
 }

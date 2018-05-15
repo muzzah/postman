@@ -258,7 +258,7 @@ public class AndroidNsdDiscoveryService implements PostmanDiscoveryService {
             Logcat.d(TAG, "Service Host Address : " + serviceInfo.getHost().getHostAddress());
             Logcat.d(TAG, "Service Host Name : " + serviceInfo.getHost().getHostName());
             Logcat.d(TAG, "Service Attributes : " + serviceInfo.getAttributes());
-            subscriber.onNext(new PostmanDiscoveryEvent(new InetAddressServiceDetails(serviceInfo.getHost(), serviceInfo.getPort())));
+            subscriber.onNext(PostmanDiscoveryEvent.found(new InetAddressServiceDetails(serviceInfo.getHost(), serviceInfo.getPort())));
 
         }
 

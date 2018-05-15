@@ -55,8 +55,7 @@ public class NIOConnectionTest {
         initMocks(this);
         buffer = ByteBuffer.allocate(100);
         buffer2 = ByteBuffer.allocate(100);
-        connection = new NIOConnection(id, clientSocketChannel, provider, buffer);
-        connection.setSelectionKey(key);
+        connection = new NIOConnection(id, clientSocketChannel, provider, buffer, key);
     }
 
     //1 socket read, 1 message read, no filled messages
@@ -348,8 +347,7 @@ public class NIOConnectionTest {
     @Test
     public void shouldDisconnectAndClearState() throws IOException {
         clientSocketChannel = new TestSocketChannel(selectorProvider, socket);
-        connection = new NIOConnection(id, clientSocketChannel, provider, buffer);
-        connection.setSelectionKey(key);
+        connection = new NIOConnection(id, clientSocketChannel, provider, buffer, key);
         connection.disconnect();
         verify(key).cancel();
         assertThat(((TestSocketChannel)clientSocketChannel).closed).isTrue();

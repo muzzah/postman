@@ -34,23 +34,19 @@ class NIOConnection implements Connection {
     private final Queue<PostmanMessage> messagesToSend;
 
     NIOConnection(SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider, SelectionKey clientKey) {
-        this(UUID.randomUUID(), clientSocketChannel, messageProvider, ByteBuffer.allocate(BUFFER_SIZE));
-        this.selectionKey = clientKey;
-    }
-
-    NIOConnection(SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider) {
-        this(UUID.randomUUID(), clientSocketChannel, messageProvider, ByteBuffer.allocate(BUFFER_SIZE));
+        this(UUID.randomUUID(), clientSocketChannel, messageProvider, ByteBuffer.allocate(BUFFER_SIZE), clientKey);
     }
 
 
     NIOConnection(UUID connectionId, SocketChannel clientSocketChannel, Provider<PostmanMessage> messageProvider,
-                  ByteBuffer buffer) {
+                  ByteBuffer buffer, SelectionKey selectionKey) {
         this.clientSocketChannel = clientSocketChannel;
         this.connectionId = connectionId;
         this.messageProvider = messageProvider;
         this.buffer = buffer;
         this.readMessages = new ConcurrentLinkedQueue<>();
         this.messagesToSend = new ConcurrentLinkedQueue<>();
+        this.selectionKey = selectionKey;
     }
 
     void read() throws IOException {
@@ -106,8 +102,8 @@ class NIOConnection implements Connection {
 
     @Override
     public void disconnect() {
-        selectionKey.cancel();
         closeQuietly(clientSocketChannel);
+        selectionKey.cancel();
         readMessages.clear();
         messagesToSend.clear();
     }
@@ -124,7 +120,7 @@ class NIOConnection implements Connection {
         return selectionKey;
     }
 
-    boolean sendMessage(PostmanMessage msg) throws IOException {
+    private boolean sendMessage(PostmanMessage msg) throws IOException {
         ByteBuffer out = msg.frame();
         int numWritten = 0;
 
@@ -135,14 +131,6 @@ class NIOConnection implements Connection {
         }
 
         return !out.hasRemaining();
-    }
-
-    void setSelectionKey(SelectionKey key) {
-        selectionKey = key;
-    }
-
-    SocketChannel channel() {
-        return clientSocketChannel;
     }
 
     @Override
@@ -199,7 +187,7 @@ class NIOConnection implements Connection {
         return o.getConnectionId().compareTo(connectionId);
     }
 
-    public void addMessageToSend(PostmanMessage msg) {
+    void addMessageToSend(PostmanMessage msg) {
         if (!messagesToSend.offer(msg)) {
             Logcat.e(TAG, "Could not add message [%s] to queue, dropping", msg.toString());
             return;

@@ -8,6 +8,7 @@ import com.siia.postman.server.Connection;
 import com.siia.postman.server.PostmanMessage;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.channels.SelectionKey;
@@ -62,5 +63,19 @@ class NIOConnectionFactory {
         serverSocketChannel.configureBlocking(false);
         return serverSocketChannel.register(nioSelector,
                 SelectionKey.OP_ACCEPT);
+    }
+
+    NIOConnection connectToServer(Selector selector, SocketChannel socketChannel, InetAddress serverAddress, int port) throws IOException {
+        socketChannel.socket().setKeepAlive(true);
+        socketChannel.socket().setPerformancePreferences(Connection.CONNECTION_TIME_PREFERENCE,
+                Connection.LATENCY_PREFERENCE, Connection.BANDWIDTH_PREFERENCE);
+
+        if (!socketChannel.connect(new InetSocketAddress(serverAddress, port))) {
+            Logcat.d(TAG, "connect return false, still connecting possibly");
+        }
+
+        socketChannel.configureBlocking(false);
+        SelectionKey clientKey = socketChannel.register(selector, SelectionKey.OP_WRITE | SelectionKey.OP_READ);
+        return new NIOConnection(socketChannel, messageProvider, clientKey);
     }
 }

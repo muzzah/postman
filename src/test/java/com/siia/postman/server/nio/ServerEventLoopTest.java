@@ -218,8 +218,6 @@ public class ServerEventLoopTest {
 
         serverSelector.addSelectionKeyToReturn(clientSelectionKey);
         when(clientSelectionKey.isValid()).thenReturn(false);
-        when(clientSelectionKey.readyOps()).thenReturn(SelectionKey.OP_WRITE);
-        when(nioConnection.sendMessage(msg)).thenThrow(IOException.class);
         when(nioConnection.isConnected()).thenReturn(false);
 
         setupBindingMockCalls();
@@ -238,7 +236,6 @@ public class ServerEventLoopTest {
         serverSelector.addSelectionKeyToReturn(clientSelectionKey);
         when(clientSelectionKey.isValid()).thenReturn(true);
         when(clientSelectionKey.readyOps()).thenReturn(SelectionKey.OP_WRITE);
-        when(nioConnection.sendMessage(msg)).thenReturn(true);
         when(nioConnection.isConnected()).thenReturn(true);
 
         setupBindingMockCalls();
@@ -247,6 +244,7 @@ public class ServerEventLoopTest {
         InOrder inOrder = inOrder(nioConnection);
 
         inOrder.verify(nioConnection).addMessageToSend(msg);
+        inOrder.verify(nioConnection).sendMessages();
 
         assertThat(serverSelector.wakeupCount).isEqualTo(1);
 

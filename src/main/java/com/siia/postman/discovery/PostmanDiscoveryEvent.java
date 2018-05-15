@@ -16,7 +16,7 @@ public class PostmanDiscoveryEvent {
 
     private Object serviceDetails;
 
-    PostmanDiscoveryEvent(Object serviceDetails) {
+    private PostmanDiscoveryEvent(Object serviceDetails) {
         this.type = Type.FOUND;
         this.serviceDetails = serviceDetails;
     }
@@ -44,6 +44,9 @@ public class PostmanDiscoveryEvent {
 
     static PostmanDiscoveryEvent started() {
         return new PostmanDiscoveryEvent(Type.STARTED);
+    }
+    public static PostmanDiscoveryEvent found(Object serviceDetails) {
+        return new PostmanDiscoveryEvent(serviceDetails);
     }
 
     @SuppressWarnings("unchecked")

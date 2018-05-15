@@ -168,7 +168,7 @@ public class BonjourDiscoveryService implements PostmanDiscoveryService {
             Inet4Address[] addresses = serviceInfo.getInet4Addresses();
             InetAddressServiceDetails serviceDetails = new InetAddressServiceDetails(addresses[0], serviceInfo.getPort());
             Logcat.v(TAG, "address=%s port=%d", Arrays.toString(addresses), serviceInfo.getPort());
-            subscriber.onNext(new PostmanDiscoveryEvent(serviceDetails));
+            subscriber.onNext(PostmanDiscoveryEvent.found(serviceDetails));
         }
     }
 }

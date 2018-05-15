@@ -155,7 +155,7 @@ public class BluetoothDiscoverer {
 
             if (nonNull(device) && nonNull(device.getName()) && device.getName().contains(nameToFind)) {
                 Logcat.d(TAG, "Found device : %s", device.getName());
-                subscriber.onNext(new PostmanDiscoveryEvent(new ServiceDetails(device.getName())));
+                subscriber.onNext(PostmanDiscoveryEvent.found(new ServiceDetails(device.getName())));
             }
 
         }

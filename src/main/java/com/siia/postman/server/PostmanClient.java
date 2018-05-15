@@ -10,14 +10,13 @@ import java.nio.channels.SocketChannel;
 
 import javax.inject.Singleton;
 
-import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.Flowable;
 
 @Singleton
 public interface PostmanClient {
 
-    FlowableProcessor<PostmanClientEvent> getClientEventStream();
 
-    void connect(@NonNull SocketChannel socketChannel, @NonNull InetAddress host, int port);
+    Flowable<PostmanClientEvent> connect(@NonNull SocketChannel socketChannel, @NonNull InetAddress host, int port);
 
     /**
      * Add message top be sent. Messages are not guaranteed to be sent once this method returns.
