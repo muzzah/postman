@@ -24,7 +24,7 @@ public class NIOPostmanServer implements PostmanServer {
     private final ServerEventLoop serverEventLoop;
     private final CompositeDisposable disposables;
 
-    public NIOPostmanServer(ServerEventLoop serverEventLoop) {
+    NIOPostmanServer(ServerEventLoop serverEventLoop) {
         this.serverEventLoop = serverEventLoop;
         this.disposables = new CompositeDisposable();
     }

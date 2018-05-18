@@ -18,6 +18,7 @@ import java.nio.channels.spi.SelectorProvider;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -39,13 +40,14 @@ class ServerEventLoop {
     private ServerSocketChannel serverSocketChannel;
     private Selector nioSelector;
     private InetSocketAddress bindAddress;
-    private final CompositeDisposable disposables;
     private SelectorProvider selectorProvider;
     @SuppressWarnings({"FieldCanBeLocal", "unused"})
     private SelectionKey acceptSelectionKey;
+    private Scheduler newThreadScheduler;
+    private final AtomicBoolean shouldLoop;
+    private final CompositeDisposable disposables;
     private final ConcurrentMap<SelectionKey, NIOConnection> connectedClientsBySelectionKey;
     private final NIOConnectionFactory nioConnectionFactory;
-    private Scheduler newThreadScheduler;
 
 
     @Inject
@@ -57,9 +59,11 @@ class ServerEventLoop {
         this.newThreadScheduler = newThreadScheduler;
         this.connectedClientsBySelectionKey = new ConcurrentHashMap<>();
         this.disposables = new CompositeDisposable();
+        shouldLoop = new AtomicBoolean(false);
     }
 
     void shutdownLoop() {
+        shouldLoop.set(false);
         disposables.clear();
         connectedClientsBySelectionKey.values().forEach(NIOConnection::disconnect);
         IO.closeQuietly(serverSocketChannel);
@@ -116,12 +120,12 @@ class ServerEventLoop {
 
             emitter.onNext(PostmanServerEvent.serverListening(bindAddress.getPort(), bindAddress.getHostName()));
             try {
-
-                while (true) {
+                shouldLoop.set(true);
+                while (shouldLoop.get()) {
                     v(TAG, "Waiting for selector updates");
                     int channelsReady = nioSelector.select();
 
-                    if (!nioSelector.isOpen()) {
+                    if (!nioSelector.isOpen() || !isRunning() || !shouldLoop.get()) {
                         break;
                     }
 
@@ -152,7 +156,6 @@ class ServerEventLoop {
 
     private void processKeyUpdates(FlowableEmitter<PostmanServerEvent> emitter) {
         nioSelector.selectedKeys().forEach(selectionKey -> {
-            v(TAG, "SK : valid=%b read=%b write=%b accept=%b", selectionKey.isValid(), selectionKey.isReadable(), selectionKey.isWritable(), selectionKey.isAcceptable());
 
             NIOConnection connection = connectedClientsBySelectionKey.get(selectionKey);
 
@@ -164,6 +167,7 @@ class ServerEventLoop {
                 }
                 return;
             }
+            v(TAG, "SK : valid=%b read=%b write=%b accept=%b", selectionKey.isValid(), selectionKey.isReadable(), selectionKey.isWritable(), selectionKey.isAcceptable());
 
             if (selectionKey.isValid() && selectionKey.isAcceptable()) {
                 acceptClientConnection(emitter);

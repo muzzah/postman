@@ -146,6 +146,7 @@ public class NIOPostmanClientTest {
         selector.closeOnThirdSelect = true;
         when(selectorProvider.openSelector()).thenReturn(selector);
         when(nioConnectionFactory.connectToServer(selector, socketChannel, serverAddress, port)).thenReturn(connection);
+        when(connection.isConnected()).thenReturn(true);
     }
 
 }

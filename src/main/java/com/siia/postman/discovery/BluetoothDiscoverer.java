@@ -37,7 +37,6 @@ import static java.util.Objects.nonNull;
 @SuppressLint("MissingPermission")
 public class BluetoothDiscoverer {
 
-
     private static final String TAG = Logcat.getTag();
     private final BluetoothAdapter bluetoothAdapter;
     private final Context ctx;

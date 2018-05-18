@@ -16,6 +16,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.nio.channels.spi.AbstractSelector;
 import java.nio.channels.spi.SelectorProvider;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Flowable;
@@ -29,10 +30,12 @@ public class NIOPostmanClient implements PostmanClient {
     private static final String TAG = Logcat.getTag();
 
     private NIOConnection client;
+    private AbstractSelector selector;
     private final Scheduler newThreadScheduler;
     private final SelectorProvider selectorProvider;
     private final NIOConnectionFactory nioConnectionFactory;
-    private AbstractSelector selector;
+    private final AtomicBoolean shouldLoop;
+
 
 
     NIOPostmanClient(Scheduler newThreadScheduler,
@@ -40,6 +43,7 @@ public class NIOPostmanClient implements PostmanClient {
         this.newThreadScheduler = newThreadScheduler;
         this.selectorProvider = selectorProvider;
         this.nioConnectionFactory = nioConnectionFactory;
+        this.shouldLoop = new AtomicBoolean(false);
     }
 
     @Override
@@ -63,13 +67,16 @@ public class NIOPostmanClient implements PostmanClient {
             emitter.onNext(PostmanClientEvent.clientConnected());
 
             try {
-                while (true) {
+                shouldLoop.set(true);
+                while (shouldLoop.get()) {
                     v(TAG, "Waiting for selector updates");
                     int channelsReady = selector.select();
 
-                    if (!selector.isOpen()) {
+                    if (!selector.isOpen() || !client.isConnected() || !shouldLoop.get()) {
+                        //Likely we have shutdown, exit loop
                         break;
                     }
+
 
                     if (selector.selectedKeys().isEmpty()) {
                         Logcat.w(TAG, "Selected keys are empty");
@@ -83,7 +90,7 @@ public class NIOPostmanClient implements PostmanClient {
                 }
                 emitter.onComplete();
             } catch (Throwable e) {
-                emitter.onError(e);
+                emitter.tryOnError(e);
             } finally {
                 disconnect();
             }
@@ -96,13 +103,13 @@ public class NIOPostmanClient implements PostmanClient {
 
     private void processKeyUpdates(FlowableEmitter<PostmanClientEvent> emitter) throws IOException {
         for (SelectionKey selectionKey : selector.selectedKeys()) {
-            v(TAG, "SK : valid=%b read=%b write=%b accept=%b", selectionKey.isValid(), selectionKey.isReadable(),
-                    selectionKey.isWritable(), selectionKey.isAcceptable());
 
             if (!selectionKey.isValid()) {
                 throw new IllegalStateException("Selection key has been invalidated");
             }
 
+            v(TAG, "SK : valid=%b read=%b write=%b accept=%b", selectionKey.isValid(), selectionKey.isReadable(),
+                    selectionKey.isWritable(), selectionKey.isAcceptable());
 
             if (selectionKey.isValid() && selectionKey.isReadable()) {
                 client.read();
@@ -134,7 +141,7 @@ public class NIOPostmanClient implements PostmanClient {
 
     @Override
     public void disconnect() {
-
+        shouldLoop.set(false);
         if (nonNull(client)) {
             client.disconnect();
         }
