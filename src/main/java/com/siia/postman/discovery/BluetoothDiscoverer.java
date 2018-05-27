@@ -1,6 +1,5 @@
 package com.siia.postman.discovery;
 
-import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -19,13 +18,13 @@ import com.siia.commons.core.constants.TimeConstant;
 import com.siia.commons.core.log.Logcat;
 import com.siia.commons.core.timing.StopWatch;
 
-import org.reactivestreams.Subscriber;
-
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 
 import javax.inject.Inject;
+
+import io.reactivex.FlowableEmitter;
 
 import static com.siia.commons.core.concurrency.ConcurrencyUtils.awaitLatch;
 import static java.util.Objects.nonNull;
@@ -34,7 +33,6 @@ import static java.util.Objects.nonNull;
  * Copyright Siia 2018
  */
 
-@SuppressLint("MissingPermission")
 public class BluetoothDiscoverer {
 
     private static final String TAG = Logcat.getTag();
@@ -48,7 +46,7 @@ public class BluetoothDiscoverer {
     private ScanCallback leScanCallback;
 
     @Inject
-    public BluetoothDiscoverer(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch) {
+    BluetoothDiscoverer(BluetoothAdapter bluetoothAdapter, Context ctx, AndroidUtils androidUtils, StopWatch stopWatch) {
         this.bluetoothAdapter = bluetoothAdapter;
         this.ctx = ctx;
         this.androidUtils = androidUtils;
@@ -56,7 +54,7 @@ public class BluetoothDiscoverer {
     }
 
     @WorkerThread
-    public void findService(@NonNull String nameToFind, Subscriber<? super PostmanDiscoveryEvent> subscriber) {
+    public void findService(@NonNull String nameToFind, FlowableEmitter<PostmanDiscoveryEvent> subscriber) {
 
         registerReceiver();
         if (!bluetoothAdapter.isEnabled()) {
@@ -113,13 +111,12 @@ public class BluetoothDiscoverer {
     }
 
 
-    private void startDiscovery(String nameToFind, Subscriber<? super PostmanDiscoveryEvent> subscriber) {
+    private void startDiscovery(String nameToFind, FlowableEmitter<PostmanDiscoveryEvent> subscriber) {
 
         BluetoothLeScanner scanner = bluetoothAdapter.getBluetoothLeScanner();
         ScanSettings scanSettings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-                //TODO Check this
                 .setMatchMode(ScanSettings.MATCH_MODE_STICKY)
                 .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
                 .setReportDelay(0)
@@ -139,9 +136,9 @@ public class BluetoothDiscoverer {
 
     private class LeScanCallback extends ScanCallback {
         private final CharSequence nameToFind;
-        private final Subscriber<? super PostmanDiscoveryEvent> subscriber;
+        private final FlowableEmitter<PostmanDiscoveryEvent> subscriber;
 
-        private LeScanCallback(CharSequence nameToFind, Subscriber<? super PostmanDiscoveryEvent> subscriber) {
+        private LeScanCallback(CharSequence nameToFind, FlowableEmitter<PostmanDiscoveryEvent> subscriber) {
             this.nameToFind = nameToFind;
             this.subscriber = subscriber;
         }
@@ -154,6 +151,12 @@ public class BluetoothDiscoverer {
 
             if (nonNull(device) && nonNull(device.getName()) && device.getName().contains(nameToFind)) {
                 Logcat.d(TAG, "Found device : %s", device.getName());
+
+                if(subscriber.isCancelled()) {
+                    stopDiscovery();
+                    return;
+                }
+
                 subscriber.onNext(PostmanDiscoveryEvent.found(new ServiceDetails(device.getName())));
             }
 
@@ -168,7 +171,7 @@ public class BluetoothDiscoverer {
         public void onScanFailed(int errorCode) {
             Logcat.e(TAG, "Problem when scanning for devices %d", errorCode);
             subscriber.onError(new PostmanDiscoveryException("BT problem when scanning for devices"));
-            finishScanningLatch.countDown();
+            stopDiscovery();
 
 
         }

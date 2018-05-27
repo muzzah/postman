@@ -13,7 +13,6 @@ public class PostmanBroadcastEvent {
     public enum Type {
         STARTED,
         STOPPED,
-        ALREADY_BROADCASTING
     }
 
     private final Type type;
@@ -25,10 +24,6 @@ public class PostmanBroadcastEvent {
 
     public Type type() {
         return type;
-    }
-
-    static PostmanBroadcastEvent alreadyBroadcasting() {
-        return new PostmanBroadcastEvent(Type.ALREADY_BROADCASTING);
     }
 
     static PostmanBroadcastEvent broadcastStopped() {
