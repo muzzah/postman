@@ -1,0 +1,9 @@
+syntax = "proto2";
+
+
+option java_package = "org.postman.server";
+
+message Message {
+    required string type = 1;
+    required bytes data = 2;
+}

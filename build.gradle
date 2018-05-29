@@ -1,111 +1,74 @@
-apply plugin: 'com.android.library'
-apply plugin: 'com.google.protobuf'
-
-android {
-
-    compileSdkVersion project.compileSdkVersion
-    buildToolsVersion project.buildToolsVersion
-
-    defaultConfig {
-        minSdkVersion project.minSdkVersion
-        targetSdkVersion project.targetSdkVersion
-        versionCode 1
-        versionName "dev"
-
-        compileOptions {
-            sourceCompatibility project.sourceCompatibility
-            targetCompatibility project.targetCompatibility
+buildscript {
+    repositories {
+        jcenter()
+        maven {
+            url 'https://maven.google.com'
         }
     }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            debuggable false
-        }
-
-        debug {
-            minifyEnabled false
-            debuggable true
-        }
-    }
-
-    lintOptions {
-        checkAllWarnings true
-        warningsAsErrors true
-        ignoreWarnings false
-        noLines false
-        showAll true
-        textOutput 'stdout'
-        htmlReport true
-        checkReleaseBuilds true
-        abortOnError false
-    }
-
-    testOptions {
-        unitTests.returnDefaultValues = true
-    }
-
-    // The defaultConfig values above are fixed, so your incremental builds don't
-    // need to rebuild the manifest (and therefore the whole APK, slowing build times).
-    // But for release builds, it's okay. So the following script iterates through
-    // all the known variants, finds those that are "release" build types, and
-    // changes those properties to something dynamic.
-    libraryVariants.all { variant ->
-        if (variant.buildType.name == "release") {
-            variant.mergedFlavor.versionCode = project.versionCode
-            variant.mergedFlavor.versionName = project.versionName
-        }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:3.1.2'
+        classpath 'com.google.protobuf:protobuf-gradle-plugin:0.8.5'
     }
 }
 
-protobuf {
-    protoc {
-        artifact = 'com.google.protobuf:protoc:3.0.0'
-    }
-    plugins {
-        javalite {
-            artifact = 'com.google.protobuf:protoc-gen-javalite:3.0.0'
-        }
-    }
-    generateProtoTasks {
-        all().each { task ->
-            task.builtins {
-                // In most cases you don't need the full Java output
-                // if you use the lite output.
-                remove java
-            }
-            task.plugins {
-                javalite { }
-            }
-        }
-    }
+ext {
+    compileSdkVersion = 27
+    buildToolsVersion = "27.0.3"
+    minSdkVersion = 24
+    targetSdkVersion = 24
+    versionCode = 1
+    versionName = "1.0.0"
+
+    supportAnnotationVersion = "27.1.1"
+
+    rxandroidVersion = "2.0.1"
+    rxjavaVersion = "2.1.12"
+
+    jUnitVersion = "4.12"
+    mockitoVersion = "1.9.5"
+    assertjVersion = "1.0.0"
+
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+
 }
 
+subprojects { subproject ->
 
-dependencies {
-    implementation project(":commons_core")
+    repositories {
+        mavenLocal()
+        jcenter()
+        maven {
+            url "https://maven.google.com"
+        }
+        maven { url "https://jitpack.io" }
+    }
 
-    annotationProcessor "com.google.dagger:dagger-compiler:${project.daggerVersion}"
-
-
-    implementation 'javax.inject:javax.inject:1'
-    implementation "io.reactivex.rxjava2:rxjava:${project.rxjavaVersion}"
-    implementation "io.reactivex.rxjava2:rxandroid:${project.rxandroidVersion}"
-    implementation "com.android.support:support-annotations:${project.supportAnnotationVersion}"
-    implementation "com.google.dagger:dagger:$project.daggerVersion"
-    implementation 'com.google.protobuf:protobuf-lite:3.0.0'
-    implementation "org.jmdns:jmdns:3.5.4"
-    //For JMDNS
-    implementation 'org.slf4j:slf4j-android:1.7.25'
-    implementation "commons-io:commons-io:${project.commonsIoVersion}"
-    implementation "org.apache.commons:commons-lang3:${project.commonsLangVersion}"
-
-
-
-
-    testImplementation 'junit:junit:4.12'
-    testImplementation 'net.jodah:concurrentunit:0.4.3'
-    testImplementation 'org.mockito:mockito-core:1.9.5'
-    testImplementation 'com.squareup.assertj:assertj-android:1.0.0'
 }
+
+task clean(type: Delete) {
+    group 'clean'
+    rootProject.allprojects.each { project ->
+        delete project.buildDir
+    }
+
+}
+
+logger.quiet "Executing Postman Build"
+logger.quiet ""
+logger.quiet ""
+logger.quiet "BUILD PROPERTIES"
+logger.quiet ""
+
+final Integer MAX_CHARS = 30
+StringBuffer sb = new StringBuffer(MAX_CHARS)
+ext.properties.each { name, value ->
+    sb.append(name)
+    (MAX_CHARS - name.length()).times {
+        sb.append(" ")
+    }
+    sb.append(": $value\n")
+
+
+}
+logger.quiet sb.toString()

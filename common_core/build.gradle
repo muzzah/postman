@@ -1,0 +1,68 @@
+apply plugin: 'com.android.library'
+
+android {
+
+    compileSdkVersion project.compileSdkVersion
+    buildToolsVersion project.buildToolsVersion
+
+    defaultConfig {
+        minSdkVersion project.minSdkVersion
+        targetSdkVersion project.targetSdkVersion
+        versionCode 1
+        versionName "dev"
+        compileOptions {
+            sourceCompatibility project.sourceCompatibility
+            targetCompatibility project.targetCompatibility
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            debuggable false
+        }
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
+    }
+
+    lintOptions {
+        checkAllWarnings true
+        warningsAsErrors true
+        ignoreWarnings false
+        noLines false
+        showAll true
+        textOutput 'stdout'
+        htmlReport true
+        checkReleaseBuilds true
+        abortOnError false
+    }
+    // The defaultConfig values above are fixed, so your incremental builds don't
+    // need to rebuild the manifest (and therefore the whole APK, slowing build times).
+    // But for release builds, it's okay. So the following script iterates through
+    // all the known variants, finds those that are "release" build types, and
+    // changes those properties to something dynamic.
+    libraryVariants.all { variant ->
+        if (variant.buildType.name == "release") {
+            variant.mergedFlavor.versionCode = project.versionCode
+            variant.mergedFlavor.versionName = project.versionName
+        }
+    }
+
+
+}
+
+
+dependencies {
+
+    implementation "com.android.support:support-annotations:${project.supportAnnotationVersion}"
+    implementation "io.reactivex.rxjava2:rxjava:${project.rxjavaVersion}"
+    implementation "io.reactivex.rxjava2:rxandroid:${project.rxandroidVersion}"
+
+    testImplementation "junit:junit:${project.jUnitVersion}"
+    testImplementation "org.mockito:mockito-core:${project.mockitoVersion}"
+    testImplementation "com.squareup.assertj:assertj-android:${project.assertjVersion}"
+}
+
+

@@ -1,0 +1,11 @@
+syntax = "proto2";
+
+
+option java_package = "org.postman.server.nio";
+
+message Ping {
+}
+
+message Pong {
+    required string msg = 1;
+}

@@ -1,0 +1,107 @@
+apply plugin: 'com.android.library'
+apply plugin: 'com.google.protobuf'
+
+android {
+
+    compileSdkVersion project.compileSdkVersion
+    buildToolsVersion project.buildToolsVersion
+
+    defaultConfig {
+        minSdkVersion project.minSdkVersion
+        targetSdkVersion project.targetSdkVersion
+        versionCode 1
+        versionName "dev"
+
+        compileOptions {
+            sourceCompatibility project.sourceCompatibility
+            targetCompatibility project.targetCompatibility
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            debuggable false
+        }
+
+        debug {
+            minifyEnabled false
+            debuggable true
+
+        }
+    }
+
+    lintOptions {
+        checkAllWarnings true
+        warningsAsErrors true
+        ignoreWarnings false
+        noLines false
+        showAll true
+        textOutput 'stdout'
+        htmlReport true
+        checkReleaseBuilds true
+        abortOnError false
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    // The defaultConfig values above are fixed, so your incremental builds don't
+    // need to rebuild the manifest (and therefore the whole APK, slowing build times).
+    // But for release builds, it's okay. So the following script iterates through
+    // all the known variants, finds those that are "release" build types, and
+    // changes those properties to something dynamic.
+    libraryVariants.all { variant ->
+        if (variant.buildType.name == "release") {
+            variant.mergedFlavor.versionCode = project.versionCode
+            variant.mergedFlavor.versionName = project.versionName
+        }
+    }
+}
+
+protobuf {
+    protoc {
+        artifact = 'com.google.protobuf:protoc:3.0.0'
+    }
+    plugins {
+        javalite {
+            artifact = 'com.google.protobuf:protoc-gen-javalite:3.0.0'
+        }
+    }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                // In most cases you don't need the full Java output
+                // if you use the lite output.
+                remove java
+            }
+            task.plugins {
+                javalite { }
+            }
+        }
+    }
+}
+
+
+dependencies {
+
+
+    implementation project(':common_core')
+
+    implementation "io.reactivex.rxjava2:rxjava:${project.rxjavaVersion}"
+    implementation "io.reactivex.rxjava2:rxandroid:${project.rxandroidVersion}"
+    implementation "com.android.support:support-annotations:${project.supportAnnotationVersion}"
+    implementation 'com.google.protobuf:protobuf-lite:3.0.0'
+    implementation "org.jmdns:jmdns:3.5.4"
+    //For JMDNS
+    implementation 'org.slf4j:slf4j-android:1.7.25'
+
+
+
+
+    testImplementation "junit:junit:${project.jUnitVersion}"
+    testImplementation "org.mockito:mockito-core:${project.mockitoVersion}"
+    testImplementation "com.squareup.assertj:assertj-android:${project.assertjVersion}"
+    testImplementation 'net.jodah:concurrentunit:0.4.3'
+}
